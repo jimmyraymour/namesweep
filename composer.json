@@ -1,0 +1,21 @@
+{
+    "name": "jimmyraymour/namesweep",
+    "type": "project",
+    "description": "NameSweep — a name-clearance engine (vanilla PHP, no framework).",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1",
+        "ext-curl": "*",
+        "ext-pdo": "*",
+        "ext-json": "*",
+        "ext-mbstring": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "NameSweep\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

@@ -1,6 +1,6 @@
 # NameSweep — Build Plan
 
-> **Status:** awaiting owner review · **Design:** hybrid (see §1) · **Tracking:** Meridian project `namesweep`
+> **Status:** M1 ✅ + M2 ✅ complete — M3 (Domain checks E2E) next · **Design:** hybrid (see §1) · **Tracking:** Meridian project `namesweep`
 > Sources: `docs/NameSweep-Spec.md` (primary) + `docs/NameSweep-Technical-Spec.md` (borrowed bits)
 
 ---
@@ -179,8 +179,8 @@ rows (green/red/amber/grey/blue), mobile-responsive, all assets local, no JS fra
 
 | # | Milestone | Deliverable | Depends on |
 |---|---|---|---|
-| **M1** | **Setup & planning** ✅ this session | Specs reviewed, hybrid design, PLAN.md, git repo, Meridian registered | — |
-| M2 | Foundation | `composer.json`, `.env.example`, `config/`, bootstrap, `Database`, `Logger`, `schema.sql`, README | M1 |
+| **M1** | **Setup & planning** ✅ | Specs reviewed, hybrid design, PLAN.md, git repo, Meridian registered | — |
+| **M2** | **Foundation** ✅ | `composer.json` + autoloader, `.env(.example)`, `config/` (app, tlds, markets, social), `Env`/`Database`/`Logger`, `bootstrap.php`, `schema.sql` (applied, 5 tables on local MySQL 8), storage dirs, owner README | M1 |
 | M3 | Domain checks E2E | `HttpClient`, RDAP, WHOIS, `Engine`, `DomainModule`, `CheckRepository`, CLI `check`, API `check` | M2 |
 | M4 | Marketplace + Social | 3-tier aftermarket, 4 social providers, parked detector | M3 |
 | M5 | Suggest + Summary | `LlmClient`, `SuggestEngine`, suggest endpoints, `report_summaries` | M3 |

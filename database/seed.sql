@@ -1,0 +1,12 @@
+-- Optional development seed data for NameSweep.
+--
+-- To load:  mysql -u root -p namesweep < database/seed.sql
+--
+-- API keys are stored as SHA-256 hashes and are normally created via
+-- `php bin/namesweep key:create <name>` (the plaintext is shown once and
+-- never stored). Nothing here is required to run the app; this file exists
+-- so the schema has an obvious place for throwaway dev data.
+--
+-- Example (do NOT use a real key here):
+-- INSERT INTO api_keys (name, key_hash, key_prefix) VALUES
+--   ('dev-agent', SHA2('dev-key-never-commit-me', 256), LEFT('dev-key-never-commit-me', 8));
