@@ -1,0 +1,19 @@
+# Secrets & handoff docs — never commit
+.env
+meridian-guide-*.md
+namesweep_git.md
+
+# Composer
+/vendor/
+composer.lock
+
+# Runtime
+storage/logs/*
+storage/cache/rdap_bootstrap.json
+storage/tmp/*
+!storage/logs/.gitkeep
+!storage/cache/.gitkeep
+!storage/tmp/.gitkeep
+
+# OS / editor
+.DS_Store
