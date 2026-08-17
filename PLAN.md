@@ -207,8 +207,17 @@ rows (green/red/amber/grey/blue), mobile-responsive, all assets local, no JS fra
 User accounts/login, email, payments, webhooks, GraphQL, Docker, CI/CD, PHPUnit/Pest
 (single `tests/smoke.php` only), public-facing README.
 
-## 15. Reporting
+## 15. Meridian tracking
 
-Meridian project `namesweep` is registered. After each milestone (M2–M8) a work-session
-report is posted with `artifact_ref` = commit hash. `requires_human=true` whenever I'm
-waiting on you (e.g. `.do`/`.ht` markers, this review).
+Project `namesweep` is registered with a `dev` tracker. The tracker is driven by **plan
+items**, not reports:
+
+- **Plan items** (the source of truth for progress): posted via `POST /api/items`
+  (`X-MC-Key` header). Tree = **phase → subphase**. Statuses: `pending`, `in_progress`,
+  `partial`, `done`, `deferred`, `blocked`, `external`. Meridian computes progress % from
+  item statuses (done = 1, partial = 0.5, deferred/external excluded).
+- **Session reports** (`POST /api/reports`) are reserved for milestones and urgent items
+  (blockers, `requires_human`), not routine progress.
+- As each phase is worked, flip its items to `in_progress`, then `done` on completion, so
+  the dashboard reflects live progress. `requires_human=true` whenever waiting on the owner
+  (e.g. `.do`/`.ht` markers).
