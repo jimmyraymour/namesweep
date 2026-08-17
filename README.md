@@ -30,8 +30,8 @@ cp .env.example .env
 mysql -u root -p -e "CREATE DATABASE namesweep CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
 mysql -u root -p namesweep < database/schema.sql
 
-# 4. Web server (dev)
-php -S 127.0.0.1:8000 -t public
+# 4. Web server (dev) — the router script makes /api/* hit api.php
+php -S 127.0.0.1:8000 -t public public/router.php
 ```
 
 ## Smoke test
