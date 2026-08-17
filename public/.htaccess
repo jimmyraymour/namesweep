@@ -1,0 +1,14 @@
+# NameSweep public/.htaccess
+# The source/config/storage dirs live outside this docroot; these rules are a
+# second line of defense against traversal and direct hits on sensitive files.
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block any path traversal attempt.
+    RewriteRule ^\.\./ - [F,L]
+
+    # Block direct access to sensitive files that might be copied in here.
+    RewriteRule ^(\.env|\.git|composer\.(json|lock)|bootstrap\.txt)$ - [F,L]
+    RewriteRule .+\.(sql|log|md)$ - [F,L]
+</IfModule>

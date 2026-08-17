@@ -10,12 +10,16 @@ use PDO;
  * Thin PDO wrapper. Kept deliberately small so it is easy to read and debug.
  * All queries use prepared statements; this class only hands out the PDO
  * handle.
+ *
+ * The MySQL session time zone is aligned to the app timezone so NOW() /
+ * CURRENT_TIMESTAMP comparisons (e.g. expires_at > NOW()) agree with the
+ * timestamps PHP writes.
  */
 final class Database
 {
     private PDO $pdo;
 
-    public function __construct(array $config)
+    public function __construct(array $config, ?string $timezone = null)
     {
         $dsn = sprintf(
             'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
@@ -29,6 +33,15 @@ final class Database
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ]);
+
+        if ($timezone !== null && $timezone !== '') {
+            try {
+                $offset = (new \DateTime('now', new \DateTimeZone($timezone)))->format('P');
+                $this->pdo->exec('SET time_zone = ' . $this->pdo->quote($offset));
+            } catch (\Throwable $e) {
+                // Non-fatal: default session timezone is fine.
+            }
+        }
     }
 
     public function pdo(): PDO

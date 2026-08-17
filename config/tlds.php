@@ -16,7 +16,20 @@
 return [
     'com' => ['type' => 'rdap'],
     'net' => ['type' => 'rdap'],
-    'io'  => ['type' => 'rdap'],
+
+    // .io is NOT served via the IANA RDAP bootstrap, so it falls back to WHOIS.
+    // Markers verified live against whois.nic.io (2026-08-17).
+    'io'  => [
+        'type'    => 'rdap',
+        'host'    => 'whois.nic.io',
+        'port'    => 43,
+        'markers' => [
+            'available'  => ['Domain not found'],
+            'registered' => ['Domain Name:', 'Registrar:'],
+            'parked'     => [],
+            'for_sale'   => [],
+        ],
+    ],
 
     'do'  => [
         'type'    => 'whois',
