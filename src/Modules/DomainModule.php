@@ -6,33 +6,55 @@ namespace NameSweep\Modules;
 
 use NameSweep\CheckRequest;
 use NameSweep\CheckResult;
-use NameSweep\Providers\Rdap\RdapBootstrap;
+use NameSweep\Providers\Pricing\TldPricing;
 use NameSweep\Providers\Rdap\RdapClient;
+use NameSweep\Providers\SuffixResolver;
 use NameSweep\Providers\Whois\WhoisClient;
 use NameSweep\Storage\CheckRepository;
 use NameSweep\Util\Logger;
 
 /**
- * Domain registration status per TLD.
+ * Domain registration status per suffix.
  *
- * Provider order per TLD config:
- *   type=rdap  -> RdapClient (via IANA bootstrap)
- *   type=whois -> WhoisClient (TCP 43)
- *   rdap TLD missing from the bootstrap -> WHOIS if a host is configured
- * If both fail, the TLD result is `uncertain` with the reason in detail.
+ * Suffixes are not restricted to a configured list: `SuffixResolver` works out
+ * how to reach any delegated suffix (config override -> IANA RDAP bootstrap ->
+ * IANA WHOIS directory), including multi-label ones such as `com.do`. A suffix
+ * that resolves to nothing is genuinely undelegated, and says so.
+ *
+ * If the resolved provider fails, the result is `uncertain` with the reason in
+ * detail — never a guess.
  */
 final class DomainModule implements ModuleInterface
 {
     public function __construct(
-        private readonly array $tldConfig,
+        private readonly SuffixResolver $suffixes,
         private readonly array $defaultTlds,
         private readonly int $ttl,
-        private readonly RdapBootstrap $rdapBootstrap,
         private readonly RdapClient $rdapClient,
         private readonly WhoisClient $whoisClient,
         private readonly CheckRepository $repo,
-        private readonly Logger $logger
+        private readonly Logger $logger,
+        private readonly ?TldPricing $pricing = null
     ) {
+    }
+
+    /**
+     * Registration pricing for the suffix, attached to every domain row
+     * whatever its status — a taken .com is still worth knowing the price of.
+     * Read live from the price table rather than the cached row, so a report
+     * never quotes a stale figure.
+     */
+    private function priced(CheckResult $result): CheckResult
+    {
+        if ($this->pricing === null || $result->tld === '') {
+            return $result;
+        }
+        try {
+            return $result->withPricing($this->pricing->forSuffix($result->tld));
+        } catch (\Throwable $e) {
+            $this->logger->warning('Pricing lookup failed', ['tld' => $result->tld, 'error' => $e->getMessage()], 'domain');
+            return $result;
+        }
     }
 
     public function name(): string
@@ -45,28 +67,43 @@ final class DomainModule implements ModuleInterface
         $tlds = $req->tlds !== [] ? $req->tlds : $this->defaultTlds;
         $results = [];
 
+        $seen = [];
         foreach ($tlds as $tld) {
-            $tld = strtolower(ltrim((string) $tld, '.'));
-            if ($tld === '') {
+            $tld = SuffixResolver::normalize((string) $tld);
+            if ($tld === '' || isset($seen[$tld])) {
                 continue;
             }
+            $seen[$tld] = true;
 
-            if (!isset($this->tldConfig[$tld])) {
-                $this->logger->warning("Unsupported TLD .{$tld}", [], 'domain');
-                $results[] = new CheckResult($req->name, $tld, 'uncertain', 'config', 'domain', '', "Unsupported TLD '{$tld}'", null, null, date('c'), false);
+            if (!SuffixResolver::isValid($tld)) {
+                $results[] = new CheckResult($req->name, mb_substr($tld, 0, 64), 'uncertain', 'config', 'domain', '', "Malformed suffix '{$tld}'", null, null, date('c'), false);
                 continue;
             }
 
             if ($req->useCache) {
                 $row = $this->repo->findFresh($req->name, $tld, 'domain', '', $this->ttl);
                 if ($row !== null) {
-                    $results[] = $this->resultFromRow($row);
+                    $cached = $this->resultFromRow($row);
+                    $this->logger->info(
+                        "checked {$req->name}.{$tld} -> {$cached->status}",
+                        ['tld' => $tld, 'status' => $cached->status, 'source' => $cached->source, 'fromCache' => true],
+                        'domain'
+                    );
+                    $results[] = $this->priced($cached);
                     continue;
                 }
             }
 
             try {
-                $results[] = $this->checkTld($req->name, $tld, $this->tldConfig[$tld]);
+                $result = $this->checkTld($req->name, $tld);
+                // Spec section 14: INFO on every check, with fromCache. Also the
+                // only way to see how many live lookups a request really makes.
+                $this->logger->info(
+                    "checked {$req->name}.{$tld} -> {$result->status}",
+                    ['tld' => $tld, 'status' => $result->status, 'source' => $result->source, 'fromCache' => false],
+                    'domain'
+                );
+                $results[] = $this->priced($result);
             } catch (\Throwable $e) {
                 $this->logger->warning("Domain check failed for {$req->name}.{$tld}", ['error' => $e->getMessage()], 'domain');
                 $results[] = new CheckResult($req->name, $tld, 'uncertain', 'domain', 'domain', '', $e->getMessage(), null, null, date('c'), false);
@@ -76,19 +113,32 @@ final class DomainModule implements ModuleInterface
         return $results;
     }
 
-    private function checkTld(string $name, string $tld, array $tldConfig): CheckResult
+    private function checkTld(string $name, string $tld): CheckResult
     {
-        $type = $tldConfig['type'] ?? 'rdap';
+        $resolved = $this->suffixes->resolve($tld);
 
-        if ($type === 'rdap') {
-            $base = $this->rdapBootstrap->baseUrlFor($tld);
-            if ($base !== null) {
-                return $this->rdapClient->check($name, $tld, $base);
-            }
-            // RDAP TLD missing from the bootstrap -> fall through to WHOIS
+        if ($resolved === null) {
+            // Not in the root zone and no WHOIS service: a real answer.
+            return new CheckResult(
+                $name,
+                $tld,
+                'uncertain',
+                'config',
+                'domain',
+                '',
+                "Suffix '.{$tld}' is not delegated (no RDAP or WHOIS service found)",
+                null,
+                null,
+                date('c'),
+                false
+            );
         }
 
-        return $this->whoisClient->check($name, $tld, $tldConfig);
+        if ($resolved['type'] === 'rdap') {
+            return $this->rdapClient->check($name, $tld, $resolved['base']);
+        }
+
+        return $this->whoisClient->check($name, $tld, $resolved);
     }
 
     private function resultFromRow(array $row): CheckResult

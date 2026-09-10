@@ -1,0 +1,63 @@
+/* Suggest page — cards grid. */
+
+.candidate-list { display: grid; gap: 12px; }
+.candidate { border-top: 1px solid var(--line); padding-top: 12px; }
+.candidate:first-child { border-top: 0; padding-top: 0; }
+.candidate-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.candidate-heading h3 { margin: 0; }
+.candidate-rejected { background: color-mix(in srgb, var(--bad) 6%, transparent); padding: 12px; border-radius: 6px; }
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+    margin: 14px 0;
+}
+
+.card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    background: var(--panel-2);
+}
+
+.card h3 {
+    margin: 0 0 10px;
+    font-size: 1.15rem;
+}
+
+.tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.tag {
+    font-size: 0.78rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+}
+
+.tag-available { color: var(--ok); border-color: currentColor; }
+.tag-registered { color: var(--bad); border-color: currentColor; }
+.tag-for-sale  { color: var(--warn); border-color: currentColor; }
+.tag-parked    { color: var(--grey); border-color: currentColor; }
+.tag-uncertain { color: var(--unc); border-color: currentColor; }
+
+.tag-price { color: var(--ink); font-weight: 600; }
+
+.rejected {
+    columns: 2;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.rejected li { padding: 3px 0; break-inside: avoid; }
+
+@media (min-width: 760px) {
+    .rejected { columns: 3; }
+}

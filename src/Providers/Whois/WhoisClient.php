@@ -10,20 +10,30 @@ use NameSweep\Util\Logger;
 /**
  * Direct WHOIS on TCP 43.
  *
- * Marker matching priority: registered > for_sale > parked > available.
- * If no marker matches, the raw response (first 200 chars) is logged and
- * `uncertain` is returned — never a guess.
+ * Markers come from the first source that has any, in order:
+ *   1. the suffix's own `markers` in config/tlds.php
+ *   2. bootstrap.txt at the repo root (hand-filled from live probes)
+ *   3. the generic `_default` set in config/tlds.php
  *
- * When a TLD's marker arrays in config/tlds.php are empty, markers are read
- * from bootstrap.txt at the repo root (filled in by the owner after a VPS
- * test). While both sources are empty, the response is logged and
- * `uncertain` is returned, per the spec's acceptance criteria.
+ * Match priority is configurable per source. Per-suffix sets keep the spec's
+ * `registered > for_sale > parked > available` order; the generic set checks
+ * `available` first, because several registries echo "Domain Name: <query>"
+ * back in a not-found response (see config/tlds.php `_default`).
+ *
+ * If no marker matches, the raw response is logged and `uncertain` is
+ * returned — never a guess.
  */
 final class WhoisClient
 {
+    private const DEFAULT_PRIORITY = ['registered', 'for_sale', 'parked', 'available'];
+
+    /**
+     * @param array $defaultMarkers the `_default` entry from config/tlds.php
+     */
     public function __construct(
         private readonly Logger $logger,
-        private readonly string $bootstrapFile
+        private readonly string $bootstrapFile,
+        private readonly array $defaultMarkers = []
     ) {
     }
 
@@ -39,19 +49,53 @@ final class WhoisClient
 
         $raw = $this->query($host, $port, $domain); // throws on network failure
 
-        $markers = $tldConfig['markers'] ?? [];
-        if ($this->allEmpty($markers)) {
-            $markers = $this->markersFromBootstrap($tld);
+        [$markers, $priority] = $this->markersFor($tld, $tldConfig);
+        $matched = $this->matchMarkers($raw, $markers, $priority);
+
+        if ($matched !== null) {
+            return new CheckResult($name, $tld, $matched, 'whois', 'domain', 'whois', null, null, null, date('c'), false);
         }
 
-        $matched = $this->matchMarkers($raw, $markers);
-
-        if ($matched === null) {
-            $this->logger->warning("WHOIS marker miss for {$domain}", ['raw' => mb_substr($raw, 0, 200)], 'whois');
-            return new CheckResult($name, $tld, 'uncertain', 'whois', 'domain', 'whois', mb_substr($raw, 0, 200), null, null, date('c'), false);
+        // Only now consider a rate-limit error: some registries carry
+        // rate-limit boilerplate inside perfectly good records.
+        if ($this->isRateLimited($raw)) {
+            $this->logger->warning("WHOIS rate limited for {$domain}", ['host' => $host], 'whois');
+            return new CheckResult($name, $tld, 'uncertain', 'whois', 'domain', 'whois', 'rate limited by ' . $host, null, null, date('c'), false);
         }
 
-        return new CheckResult($name, $tld, $matched, 'whois', 'domain', 'whois', null, null, null, date('c'), false);
+        $this->logger->warning("WHOIS marker miss for {$domain}", ['raw' => mb_substr($raw, 0, 200)], 'whois');
+        return new CheckResult($name, $tld, 'uncertain', 'whois', 'domain', 'whois', mb_substr($raw, 0, 200), null, null, date('c'), false);
+    }
+
+    /**
+     * @return array{0: array<string, string[]>, 1: string[]} markers, priority
+     */
+    private function markersFor(string $tld, array $tldConfig): array
+    {
+        $configured = $tldConfig['markers'] ?? [];
+        if (!$this->allEmpty($configured)) {
+            return [$configured, $tldConfig['priority'] ?? self::DEFAULT_PRIORITY];
+        }
+
+        $bootstrap = $this->markersFromBootstrap($tld);
+        if (!$this->allEmpty($bootstrap)) {
+            return [$bootstrap, self::DEFAULT_PRIORITY];
+        }
+
+        return [
+            $this->defaultMarkers['markers'] ?? [],
+            $this->defaultMarkers['priority'] ?? self::DEFAULT_PRIORITY,
+        ];
+    }
+
+    private function isRateLimited(string $raw): bool
+    {
+        foreach ($this->defaultMarkers['rate_limit_markers'] ?? [] as $marker) {
+            if ($marker !== '' && stripos($raw, $marker) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function query(string $host, int $port, string $domain): string
@@ -115,11 +159,12 @@ final class WhoisClient
             if ($line === '' || $line[0] === '#') {
                 continue;
             }
-            if (preg_match('/^\[([a-z0-9]+)\]$/i', $line, $m)) {
+            // Section headers accept multi-label suffixes, e.g. [com.do].
+            if (preg_match('/^\[([a-z0-9.-]+)\]$/i', $line, $m)) {
                 $section = strtolower($m[1]);
                 continue;
             }
-            if ($section !== $tld && !in_array($section, [$tld], true)) {
+            if ($section !== $tld) {
                 continue;
             }
             if (preg_match('/^(\w+)_marker\s*=\s*(.+)$/i', $line, $m)) {
@@ -135,11 +180,11 @@ final class WhoisClient
 
     /**
      * @param array<string, string[]> $markers
+     * @param string[] $priority
      */
-    private function matchMarkers(string $raw, array $markers): ?string
+    private function matchMarkers(string $raw, array $markers, array $priority): ?string
     {
-        // Priority: registered > for_sale > parked > available.
-        foreach (['registered', 'for_sale', 'parked', 'available'] as $status) {
+        foreach ($priority as $status) {
             foreach ($markers[$status] ?? [] as $marker) {
                 if ($marker !== '' && stripos($raw, $marker) !== false) {
                     return $status;

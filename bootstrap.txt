@@ -1,34 +1,17 @@
 # NameSweep — WHOIS marker bootstrap
 #
 # While config/tlds.php has EMPTY marker arrays for a TLD, the WhoisClient
-# reads markers from this file instead. Fill in the marker strings after
-# running a one-off WHOIS test on the VPS, then commit this file.
+# reads markers from this file instead. Filled in 2026-08-17 by the coding
+# agent from live WHOIS probes (whois.nic.do on TCP 43):
 #
-# How to fill it in:
-#   1. On the VPS, run a WHOIS query for a KNOWN-REGISTERED domain and a
-#      KNOWN-AVAILABLE domain on each of .do and .ht, e.g.:
-#        printf 'example.do\r\n' | nc whois.nic.do 43
-#        printf 'definitely-not-registered-xyz.do\r\n' | nc whois.nic.do 43
-#   2. Look at the two responses. Pick a short substring that ONLY appears in
-#      the available response (e.g. "No match for", "NOT FOUND", "no entries
-#      found") and one that ONLY appears in the registered response
-#      (e.g. "Domain Name:", "Registrar:", "Creation Date:").
-#   3. Uncomment and set the marker lines below. You can repeat a key to add
-#      more markers for the same status.
+#   google.do (registered)      -> "Domain Name:", "Creation Date:", ...
+#   zzqqxwvxyz.do (available)   -> "Domain Status: No Object Found"
 #
-# Format per TLD section:
-#   available_marker  = <substring seen only in responses for unregistered names>
-#   registered_marker = <substring seen only in responses for registered names>
-#   parked_marker     = <optional>
-#   for_sale_marker   = <optional>
-#
-# Until markers are filled in here (and in config/tlds.php), .do and .ht
-# checks return `uncertain` and log the raw WHOIS response for debugging.
+# Markers are short substrings that appear in ONLY one response class.
+# Note: `.ht` no longer needs markers — it is served by RDAP (rdap.nic.ht,
+# in the IANA bootstrap); whois.nic.ht is IPv6-only with port 43 closed
+# from both our networks, so it remains a fallback only.
 
 [do]
-# available_marker = No match for
-# registered_marker = Domain Name:
-
-[ht]
-# available_marker =
-# registered_marker =
+available_marker = No Object Found
+registered_marker = Creation Date:

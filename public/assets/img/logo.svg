@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 64">
+  <!-- NameSweep logo (light variant for the dark header):
+       white tile, blue sweep arc, green checkmark, white wordmark -->
+  <g>
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="#ffffff"/>
+    <path d="M14 44 A 21 21 0 0 1 39 17" stroke="#1f6feb" stroke-width="5.5" fill="none" stroke-linecap="round"/>
+    <path d="M21 33 l7.5 7.5 L44 21" stroke="#1a7f37" stroke-width="6.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="74" y="41.5" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="27" font-weight="700" fill="#ffffff" letter-spacing="0.5">NameSweep</text>
+</svg>

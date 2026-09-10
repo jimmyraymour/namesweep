@@ -7,6 +7,8 @@ namespace NameSweep\Api;
 use NameSweep\CheckRequest;
 use NameSweep\Engine;
 use NameSweep\Util\Logger;
+use NameSweep\Util\ReportAnalyzer;
+use NameSweep\Util\SummaryWriter;
 
 /**
  * Handles POST /check and the per-module check endpoints.
@@ -15,7 +17,9 @@ final class CheckController
 {
     public function __construct(
         private readonly ?Engine $engine,
-        private readonly Logger $logger
+        private readonly ?SummaryWriter $summary,
+        private readonly Logger $logger,
+        private readonly array $config = []
     ) {
     }
 
@@ -26,13 +30,17 @@ final class CheckController
         // Bulk names (hybrid from Spec B) or a single name (Spec A).
         $names = [];
         if (isset($body['names']) && is_array($body['names'])) {
+            $invalid = [];
             foreach ($body['names'] as $n) {
                 if (is_string($n) && preg_match('/^[a-z0-9-]{1,63}$/i', $n)) {
-                    $names[] = $n;
+                    $names[] = strtolower($n);
+                } else {
+                    $invalid[] = $n;
                 }
             }
-            if ($names === []) {
-                $this->fail(400, 'invalid_input', 'names must contain valid names', ['field' => 'names']);
+            $names = array_values(array_unique($names));
+            if ($names === [] || $invalid !== []) {
+                $this->fail(400, 'invalid_input', 'names must contain only valid names', ['field' => 'names']);
             }
         } else {
             $name = $body['name'] ?? null;
@@ -48,13 +56,23 @@ final class CheckController
 
         if (count($names) === 1 && !isset($body['names'])) {
             $data = $this->engine->checkAsArray($this->requestFromBody($body, $names[0]));
-            $this->json(200, $data);
+            $data['verdict'] = ReportAnalyzer::verdict(
+                $data['results'],
+                $this->budget($body),
+                $this->currency($body)
+            );
+            $this->json(200, $this->withSummary($data, $body));
             return;
         }
 
         $results = [];
         foreach ($names as $n) {
             $results[$n] = $this->engine->checkAsArray($this->requestFromBody($body, $n));
+            $results[$n]['verdict'] = ReportAnalyzer::verdict(
+                $results[$n]['results'],
+                $this->budget($body),
+                $this->currency($body)
+            );
         }
         $this->json(200, [
             'names'      => $names,
@@ -75,20 +93,74 @@ final class CheckController
         }
 
         $req = $this->requestFromBody($body, $name);
-        $req = new CheckRequest($req->name, $req->tlds, [$module], $req->markets, $req->useCache);
+        $req = new CheckRequest(
+            $req->name,
+            $req->tlds,
+            [$module],
+            $req->markets,
+            $req->useCache,
+            $req->platform,
+            $req->alternatives,
+            $req->budget,
+            $req->currency
+        );
 
-        $this->json(200, $this->engine->checkAsArray($req));
+        $data = $this->engine->checkAsArray($req);
+        $data['verdict'] = ReportAnalyzer::verdict($data['results'], $this->budget($body), $this->currency($body));
+        $this->json(200, $this->withSummary($data, $body));
+    }
+
+    private function withSummary(array $data, array $body): array
+    {
+        $include = !isset($body['include_summary']) || $body['include_summary'] !== false;
+        if ($include && $this->summary !== null) {
+            $data['summary'] = $this->summary->forReport($data);
+        }
+        return $data;
     }
 
     private function requestFromBody(array $body, string $name): CheckRequest
     {
+        $modules = $this->strList($body['modules'] ?? null);
+
+        // API knob: "trademark": false excludes the module (spec §6.4).
+        if (($body['trademark'] ?? null) === false) {
+            if ($modules === []) {
+                $modules = array_values(array_diff(
+                    $this->config['default_modules'] ?? ['domain', 'marketplace', 'social', 'trademark'],
+                    ['trademark']
+                ));
+            } else {
+                $modules = array_values(array_diff($modules, ['trademark']));
+            }
+        }
+
         return new CheckRequest(
             $name,
             $this->strList($body['tlds'] ?? null),
-            $this->strList($body['modules'] ?? null),
+            $modules,
             $this->strList($body['markets'] ?? null),
-            !isset($body['use_cache']) || $body['use_cache'] !== false
+            !isset($body['use_cache']) || $body['use_cache'] !== false,
+            null, // platform: single-platform social calls set it in the controller
+            // M12 — alternatives (adds suffix rows) and a budget that ranks
+            // but never filters. Rejected non-numeric budgets instead of
+            // coercing: a typo'd "50x" must not silently mean 50.
+            ($body['alternatives'] ?? false) === true,
+            isset($body['budget']) && is_numeric($body['budget']) ? (float) $body['budget'] : null,
+            $this->currency($body)
         );
+    }
+
+    private function budget(array $body): ?float
+    {
+        return isset($body['budget']) && is_numeric($body['budget']) ? (float) $body['budget'] : null;
+    }
+
+    private function currency(array $body): string
+    {
+        return is_string($body['currency'] ?? null) && trim($body['currency']) !== ''
+            ? strtoupper(trim($body['currency']))
+            : 'USD';
     }
 
     private function strList(mixed $value): array

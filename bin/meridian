@@ -1,0 +1,351 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Meridian tracker client — `php bin/meridian <command>`.
+ *
+ * Reporting into Meridian is mandatory for every agent working on this repo
+ * (see AGENT_RULES.md). This wrapper exists so that doing it correctly is one
+ * short command instead of a hand-written curl call, because the failure mode
+ * we actually observed was an agent simply not doing it.
+ *
+ * Reads MERIDIAN_API_URL / MERIDIAN_API_KEY / MERIDIAN_PROJECT_ID /
+ * MERIDIAN_TRACKER from .env. It deliberately does NOT load the app's
+ * bootstrap: the tracker must stay usable when the database is down, which is
+ * exactly when you most need to report a blocker.
+ */
+
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+
+// Minimal .env reader — no app bootstrap, no database.
+$env = [];
+foreach (['.env'] as $file) {
+    $path = $root . '/' . $file;
+    if (!is_file($path)) {
+        continue;
+    }
+    foreach (file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || !str_contains($line, '=')) {
+            continue;
+        }
+        [$k, $v] = explode('=', $line, 2);
+        $env[trim($k)] = trim($v);
+    }
+}
+$get = static fn (string $k, string $default = ''): string
+    => (string) ($env[$k] ?? (getenv($k) ?: $default));
+// .env wins over the process environment: the owner's machine carries a
+// machine-wide MERIDIAN_API_KEY scoped to the qaribo project, which used to
+// hijack this wrapper and answer every call with "scoped to project qaribo".
+
+$base    = rtrim($get('MERIDIAN_API_URL', 'http://localhost/meridian/api'), '/');
+$key     = $get('MERIDIAN_API_KEY');
+$project = $get('MERIDIAN_PROJECT_ID', 'namesweep');
+$tracker = $get('MERIDIAN_TRACKER', 'dev');
+
+if ($key === '') {
+    fwrite(STDERR, "MERIDIAN_API_KEY is not set (.env or environment).\nAsk the operator for the project key; see AGENT_RULES.md.\n");
+    exit(2);
+}
+
+/**
+ * @return array{code:int, body:array}
+ */
+function api(string $method, string $path, ?array $body = null): array
+{
+    global $base, $key;
+
+    $ch = curl_init($base . $path);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST  => $method,
+        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_HTTPHEADER     => ['X-MC-Key: ' . $key, 'Content-Type: application/json'],
+    ]);
+    if ($body !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body, JSON_UNESCAPED_SLASHES));
+    }
+
+    $raw  = curl_exec($ch);
+    $err  = curl_error($ch);
+    $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($raw === false) {
+        return ['code' => 0, 'body' => ['ok' => false, 'error' => 'transport: ' . $err]];
+    }
+
+    $decoded = json_decode((string) $raw, true);
+    return ['code' => $code, 'body' => is_array($decoded) ? $decoded : ['ok' => false, 'raw' => $raw]];
+}
+
+/** Prints the API's own error text — it names precisely what is wrong. */
+function bail(array $res): never
+{
+    fwrite(STDERR, 'HTTP ' . $res['code'] . ' — ' . ($res['body']['error'] ?? json_encode($res['body'])) . "\n");
+    fwrite(STDERR, "See AGENT_RULES.md section 'When a call fails'.\n");
+    exit(1);
+}
+
+/** @return array{flags:array<string,string>, positional:string[]} */
+function parseArgs(array $args): array
+{
+    $flags = [];
+    $positional = [];
+    foreach ($args as $arg) {
+        if (str_starts_with($arg, '--')) {
+            $body = substr($arg, 2);
+            if (str_contains($body, '=')) {
+                [$k, $v] = explode('=', $body, 2);
+                $flags[$k] = $v;
+            } else {
+                $flags[$body] = '1';
+            }
+        } else {
+            $positional[] = $arg;
+        }
+    }
+    return ['flags' => $flags, 'positional' => $positional];
+}
+
+$argvCopy = $argv;
+array_shift($argvCopy);
+$command = array_shift($argvCopy) ?? 'help';
+$parsed  = parseArgs($argvCopy);
+$pos     = $parsed['positional'];
+$flags   = $parsed['flags'];
+
+switch ($command) {
+    // ── Orientation ────────────────────────────────────────────────────────
+    case 'whoami':
+        $res = api('GET', '/projects');
+        if (($res['body']['ok'] ?? false) !== true) {
+            bail($res);
+        }
+        foreach ($res['body']['projects'] ?? [] as $p) {
+            printf("%s (%s) — %s / %s\n", $p['name'], $p['id'], $p['type'], $p['status']);
+        }
+        echo "API: {$base}\n";
+        break;
+
+    case 'status':
+        $res = api('GET', '/dashboard');
+        if (($res['body']['ok'] ?? false) !== true) {
+            bail($res);
+        }
+        foreach ($res['body']['projects'] ?? [] as $p) {
+            printf("%s [%s] — health %s%s\n",
+                $p['name'] ?? $project,
+                $p['tracker_type'] ?? '?',
+                $p['health_status'] ?? '?',
+                !empty($p['auto_flagged']) ? '  ** AUTO-FLAGGED: no recent report **' : ''
+            );
+            printf("  phase:    %s\n", $p['phase'] ?? '(none reported)');
+            printf("  next:     %s\n", $p['next_milestone'] ?? '(none)');
+            printf("  last:     %s by %s (%s days ago)\n",
+                $p['last_report_at'] ?? 'never', $p['submitted_by'] ?? '?', $p['days_since_report'] ?? '?');
+            if (($p['artifact_ref'] ?? '') !== '') {
+                printf("  artifact: %s\n", $p['artifact_ref']);
+            }
+        }
+        $alerts = $res['body']['alerts'] ?? [];
+        printf("open alerts: %d\n", count($alerts));
+        foreach ($alerts as $a) {
+            printf("  #%s [%s] %s\n", $a['id'] ?? '?', $a['severity'] ?? '?', $a['title'] ?? '');
+        }
+        break;
+
+    // ── Tracker items ──────────────────────────────────────────────────────
+    case 'items':
+        $query = '/items?project_id=' . urlencode($project);
+        if (isset($flags['status'])) {
+            $query .= '&status=' . urlencode($flags['status']);
+        }
+        if (isset($flags['section'])) {
+            $query .= '&section_tag=' . urlencode($flags['section']);
+        }
+        $res = api('GET', $query);
+        if (($res['body']['ok'] ?? false) !== true) {
+            bail($res);
+        }
+
+        $items = $res['body']['items'] ?? [];
+
+        // Filtered results are printed flat: a matching child's parent may not
+        // be in the result set, so tree rendering would silently hide it.
+        if (isset($flags['status']) || isset($flags['section'])) {
+            foreach ($items as $i) {
+                printf("#%-5s %-12s %-9s %s\n", $i['id'], $i['status'], $i['item_type'], $i['title']);
+            }
+            printf("\n%d items (filtered)\n", count($items));
+            break;
+        }
+
+        // Otherwise rebuild the tree from parent_id — the API returns a flat list.
+        $byParent = [];
+        foreach ($items as $i) {
+            $byParent[$i['parent_id'] ?? 0][] = $i;
+        }
+        $print = static function (int $parent, int $depth) use (&$print, $byParent): void {
+            foreach ($byParent[$parent] ?? [] as $i) {
+                printf("%s#%-5s %-12s %s\n", str_repeat('  ', $depth), $i['id'], $i['status'], $i['title']);
+                $print((int) $i['id'], $depth + 1);
+            }
+        };
+        $print(0, 0);
+        printf("\n%d items\n", count($items));
+        break;
+
+    case 'item': // item <id> <status> [notes]
+        $id     = $pos[0] ?? '';
+        $status = $pos[1] ?? '';
+        if ($id === '' || $status === '') {
+            fwrite(STDERR, "Usage: php bin/meridian item <id> <pending|in_progress|partial|done|deferred|blocked|external> [notes]\n");
+            exit(2);
+        }
+        $payload = ['project_id' => $project, 'item_id' => (int) $id, 'status' => $status];
+        if (isset($pos[2])) {
+            $payload['notes'] = $pos[2];
+        }
+        if (isset($flags['priority'])) {
+            $payload['priority'] = $flags['priority'];
+        }
+        $res = api('POST', '/items', $payload);
+        if (($res['body']['ok'] ?? false) !== true) {
+            bail($res);
+        }
+        printf("#%s → %s\n", $res['body']['item']['id'], $res['body']['item']['status']);
+        break;
+
+    case 'new': // new "<title>" [--parent=id] [--status=] [--priority=] [--section=] [--notes=]
+        $title = $pos[0] ?? '';
+        if ($title === '') {
+            fwrite(STDERR, "Usage: php bin/meridian new \"<title>\" [--parent=<id>] [--status=pending] [--priority=medium] [--section=<tag>] [--notes=\"...\"]\n");
+            exit(2);
+        }
+        $payload = ['project_id' => $project, 'tracker_type' => $tracker, 'title' => $title];
+        foreach (['status', 'priority', 'notes'] as $f) {
+            if (isset($flags[$f])) {
+                $payload[$f] = $flags[$f];
+            }
+        }
+        if (isset($flags['section'])) {
+            $payload['section_tag'] = $flags['section'];
+        }
+        if (isset($flags['parent'])) {
+            $payload['parent_id'] = (int) $flags['parent'];
+        }
+        $res = api('POST', '/items', $payload);
+        if (($res['body']['ok'] ?? false) !== true) {
+            bail($res);
+        }
+        printf("created #%s (%s)\n", $res['body']['item']['id'], $res['body']['item']['item_type']);
+        break;
+
+    // ── Session report ─────────────────────────────────────────────────────
+    case 'report':
+        $required = ['health', 'phase', 'done', 'next', 'artifact'];
+        $missing  = array_values(array_filter($required, static fn ($f) => ($flags[$f] ?? '') === ''));
+        if ($missing !== []) {
+            fwrite(STDERR, "Missing: --" . implode(' --', $missing) . "\n\n");
+            fwrite(STDERR, "Usage: php bin/meridian report \\\n"
+                . "  --health=green|yellow|red \\\n"
+                . "  --phase=\"Phase 13 - M12 Alternatives + budget\" \\\n"
+                . "  --done=\"what you actually finished\" \\\n"
+                . "  --next=\"the next concrete step\" \\\n"
+                . "  --artifact=\"commit <hash>\" \\\n"
+                . "  [--blockers=\"none\"] [--by=<agent-name>] [--human] [--cost=0] [--notes=\"...\"]\n");
+            exit(2);
+        }
+        $payload = [
+            'project_id'      => $project,
+            'tracker_type'    => $tracker,
+            'submitted_by'    => $flags['by'] ?? 'agent',
+            'health_status'   => $flags['health'],
+            'phase'           => $flags['phase'],
+            'goals_completed' => $flags['done'],
+            'blockers'        => $flags['blockers'] ?? 'none',
+            'next_milestone'  => $flags['next'],
+            'requires_human'  => isset($flags['human']),
+            'artifact_ref'    => $flags['artifact'],
+            'api_cost_usd'    => (float) ($flags['cost'] ?? 0),
+            'notes'           => $flags['notes'] ?? '',
+        ];
+        $res = api('POST', '/reports', $payload);
+        if (($res['body']['ok'] ?? false) !== true) {
+            bail($res);
+        }
+        printf("report #%s submitted\n", $res['body']['id']);
+        break;
+
+    // ── Blockers ───────────────────────────────────────────────────────────
+    case 'alert': // alert "<title>" "<body>" [--severity=] [--type=] [--ref=]
+        $title = $pos[0] ?? '';
+        if ($title === '') {
+            fwrite(STDERR, "Usage: php bin/meridian alert \"<title>\" \"<body>\" [--severity=warning] [--type=agent_blocked] [--ref=<file>]\n");
+            exit(2);
+        }
+        $payload = [
+            'project_id' => $project,
+            'source'     => $flags['by'] ?? 'agent',
+            'alert_type' => $flags['type'] ?? 'agent_blocked',
+            'severity'   => $flags['severity'] ?? 'warning',
+            'title'      => $title,
+            'body'       => $pos[1] ?? $title,
+        ];
+        if (isset($flags['ref'])) {
+            $payload['source_ref'] = $flags['ref'];
+        }
+        $res = api('POST', '/alerts', $payload);
+        if (($res['body']['ok'] ?? false) !== true) {
+            bail($res);
+        }
+        echo "alert raised\n";
+        break;
+
+    case 'guide':
+        $res = api('GET', '/guide');
+        // /guide returns raw Markdown, so the JSON decode falls back to `raw`.
+        $doc = $res['body']['raw'] ?? '';
+        if ($res['code'] !== 200 || $doc === '') {
+            bail($res);
+        }
+        $out = $pos[0] ?? (dirname(__DIR__) . '/MERIDIAN_GUIDE.md');
+        file_put_contents($out, $doc);
+        printf("wrote %s (%d bytes)\n", $out, strlen($doc));
+        break;
+
+    case 'help':
+    default:
+        echo <<<TXT
+        Meridian tracker client — reporting is mandatory, see AGENT_RULES.md.
+
+        Orientation
+          whoami                        Confirm the key works and which project it is scoped to
+          status                        Last reported phase, health, and open alerts
+          items [--status=] [--section=] The task tree
+
+        During work
+          item <id> <status> ["notes"]  Update an item. Do this as you go, not at the end.
+          new "<title>" [--parent=<id>] [--status=] [--priority=] [--section=] [--notes=]
+
+        Blocked
+          alert "<title>" "<body>" [--severity=critical] [--type=agent_blocked]
+          ...and set the item's status to `blocked`.
+
+        End of session (required)
+          report --health=green --phase="..." --done="..." --next="..." --artifact="commit <hash>"
+                 [--blockers="none"] [--by=<agent>] [--human] [--cost=0] [--notes="..."]
+
+        Reference
+          guide [path]                  Re-download the full integration guide
+
+        Statuses: pending · in_progress · partial · done · deferred · blocked · external
+        (done=100%, partial=50%, deferred/external excluded, everything else 0% but counted)
+
+        TXT;
+        break;
+}

@@ -20,6 +20,9 @@ final class RdapBootstrap
 {
     private const DEFAULT_MAX_AGE = 7 * 86400;
 
+    /** Decoded bootstrap, memoised for the life of the process. */
+    private ?array $loaded = null;
+
     public function __construct(
         private readonly HttpClient $http,
         private readonly string $cacheFile,
@@ -27,6 +30,19 @@ final class RdapBootstrap
         private readonly Logger $logger,
         private readonly int $maxAgeSeconds = self::DEFAULT_MAX_AGE
     ) {
+    }
+
+    /** @return string[] all suffixes present in the cached IANA bootstrap */
+    public function suffixes(): array
+    {
+        $suffixes = [];
+        foreach ($this->load()['services'] ?? [] as $service) {
+            foreach (($service[0] ?? []) as $suffix) {
+                $suffixes[] = (string) $suffix;
+            }
+        }
+        sort($suffixes);
+        return array_values(array_unique($suffixes));
     }
 
     /**
@@ -49,6 +65,17 @@ final class RdapBootstrap
      * @return array{services: array}
      */
     private function load(): array
+    {
+        if ($this->loaded !== null) {
+            return $this->loaded;
+        }
+        return $this->loaded = $this->loadFresh();
+    }
+
+    /**
+     * @return array{services: array}
+     */
+    private function loadFresh(): array
     {
         if (is_file($this->cacheFile)) {
             $age = time() - filemtime($this->cacheFile);

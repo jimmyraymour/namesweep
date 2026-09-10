@@ -5,10 +5,28 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
+    # Expose the Authorization header to PHP (Apache strips it otherwise).
+    <IfModule mod_setenvif.c>
+        SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+    </IfModule>
+
     # Block any path traversal attempt.
     RewriteRule ^\.\./ - [F,L]
 
     # Block direct access to sensitive files that might be copied in here.
     RewriteRule ^(\.env|\.git|composer\.(json|lock)|bootstrap\.txt)$ - [F,L]
     RewriteRule .+\.(sql|log|md)$ - [F,L]
+
+    # --- Front controller (works at the domain root or under a subdirectory
+    #     such as /namesweep/public — rewrite rules are relative to this file).
+    # Serve real files (assets) as-is.
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # REST API → api.php
+    RewriteRule ^api/v1(/.*)?$ api.php [QSA,L]
+
+    # Everything else → web UI front controller
+    RewriteRule ^ index.php [QSA,L]
 </IfModule>

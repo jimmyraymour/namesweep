@@ -20,6 +20,13 @@ final class CheckRepository
     /**
      * Returns a fresh cached row for the exact (name, tld, module, platform)
      * key, or null.
+     *
+     * `uncertain` rows are never returned. An uncertain result means we could
+     * not determine the state — usually a rate limit, a network blip, or an
+     * unreachable provider — and serving that back for a whole TTL turns a
+     * momentary failure into a day-long wrong answer. Retrying costs one
+     * request; being wrong about a name costs the domain. Rows predating M9
+     * are filtered here rather than migrated away.
      */
     public function findFresh(string $name, string $tld, string $module, string $platform, int $ttlSeconds): ?array
     {
@@ -27,6 +34,7 @@ final class CheckRepository
             'SELECT * FROM checks
              WHERE name = ? AND tld = ? AND module = ? AND platform = ?
                AND expires_at > NOW()
+               AND status <> \'uncertain\'
              ORDER BY checked_at DESC LIMIT 1'
         );
         $stmt->execute([$name, $tld, $module, $platform]);

@@ -45,8 +45,22 @@ return [
     ],
 
     'aftermarket' => [
-        'openprovider_api_url' => getenv('OPENPROVIDER_API_URL') ?: 'https://api.openprovider.com/v1beta',
-        'openprovider_api_key' => getenv('OPENPROVIDER_API_KEY') ?: '',
+        'openprovider_api_url'  => getenv('OPENPROVIDER_API_URL') ?: 'https://api.openprovider.com/v1beta',
+        'openprovider_api_key'  => getenv('OPENPROVIDER_API_KEY') ?: '',
+        'concurrency'           => (int) (getenv('AFTERMARKET_CONCURRENCY') ?: 5),
+        // Primary RobotDomainSearch tier. `{domain}` is replaced with the FQDN.
+        // THE LIVE ENDPOINT IS UNVERIFIED/DOWN as of 2026-08-17 (api.robotdomainsearch.com
+        // would not accept connections); point this at the real one once confirmed on the VPS.
+        'robotdomainsearch_availability' => getenv('ROBOTDOMAINSEARCH_AVAILABILITY_URL')
+            ?: 'https://api.robotdomainsearch.com/availability?domain={domain}',
+        'robotdomainsearch_aftermarket'  => getenv('ROBOTDOMAINSEARCH_AFTERMARKET_URL')
+            ?: 'https://api.robotdomainsearch.com/v1/aftermarket?domain={domain}',
+    ],
+
+    'pricing' => [
+        // Porkbun's public pricing endpoint — no key, no account, 907 suffixes.
+        'endpoint' => getenv('PRICING_ENDPOINT') ?: 'https://api.porkbun.com/api/json/v3/pricing/get',
+        'cache'    => __DIR__ . '/../storage/cache/tld_pricing.json',
     ],
 
     'rdap' => [
@@ -58,9 +72,28 @@ return [
         'per_minute' => (int) (getenv('RATE_LIMIT_PER_MINUTE') ?: 60),
     ],
 
-    'default_tlds'    => ['com', 'net', 'io'],
-    'default_modules' => ['domain', 'marketplace', 'social', 'trademark'],
-    'default_markets' => ['us'],
+    'default_tlds'       => ['com', 'net', 'io'],
+    'default_modules'    => ['domain', 'marketplace', 'social', 'trademark'],
+    'default_markets'    => ['us'],
+    // M12 — suffixes checked beyond what the caller asked for when the
+    // `alternatives` flag is set. The trademark markets' ccTLDs (do/ht/us via
+    // `cc_tld`, not the market keys) are appended to this list in bootstrap.php.
+    'alternative_tlds'   => ['com', 'net', 'org', 'io', 'co', 'app', 'dev', 'xyz', 'ai'],
+
+    'trademark' => [
+        'enabled'    => (bool) (getenv('TRADEMARK_ENABLED') ?: 1),
+        'onapi_url'  => getenv('ONAPI_URL') ?: 'https://onapi.gob.do/busqueda-de-marcas',
+        'uspto_url'  => getenv('USPTO_URL') ?: 'https://tmsearch.uspto.gov/prod-v1-0-0/tmsearch',
+    ],
+
+    'suggest' => [
+        'max_iterations' => (int) (getenv('SUGGEST_MAX_ITERATIONS') ?: 5),
+        'temperature'    => (float) (getenv('SUGGEST_TEMPERATURE') ?: 0.7),
+    ],
+
+    'summary' => [
+        'temperature' => (float) (getenv('SUMMARY_TEMPERATURE') ?: 0.2),
+    ],
 
     'ttl' => [
         'domain'      => (int) (getenv('TTL_DOMAIN') ?: 24) * 3600,

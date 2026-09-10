@@ -10,7 +10,10 @@ composer.lock
 # Runtime
 storage/logs/*
 storage/cache/rdap_bootstrap.json
+storage/cache/whois_servers.json
+storage/cache/tld_pricing.json
 storage/tmp/*
+storage/settings.json
 !storage/logs/.gitkeep
 !storage/cache/.gitkeep
 !storage/tmp/.gitkeep

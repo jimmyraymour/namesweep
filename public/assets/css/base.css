@@ -1,0 +1,173 @@
+/* NameSweep base — layout, forms, badges. Retokened to the shared Metronic
+   (demo8) palette; class names are unchanged. The page shell (sidebar +
+   muted backdrop + white card surface) comes from src/Web/Layout.php; this
+   file styles what renders inside it. Light + .dark tokens mirror the
+   theme's own variables (see shared/theme/assets/css/styles.css). */
+
+:root {
+    --bg: #ffffff;            /* card surface inside the shell */
+    --panel: #ffffff;
+    --panel-2: #f4f4f5;       /* zinc-100 */
+    --ink: #18181b;           /* zinc-900 */
+    --text: #3f3f46;          /* zinc-700 — secondary-foreground */
+    --muted: #71717a;         /* zinc-500 — muted-foreground */
+    --line: #e4e4e7;          /* zinc-200 — the theme's --border */
+    --brand: #3b82f6;         /* blue-500 — the theme's --primary */
+    --ok: #16a34a;            /* green-600 */
+    --bad: #dc2626;           /* red-600 — destructive */
+    --warn: #d97706;          /* amber-600 */
+    --grey: #71717a;          /* zinc-500 — parked */
+    --unc: #2563eb;           /* blue-600 — uncertain */
+    --radius: 8px;            /* the theme's --radius */
+}
+
+.dark {
+    --bg: #09090b;            /* zinc-950 */
+    --panel: #18181b;         /* zinc-900 card */
+    --panel-2: #27272a;       /* zinc-800 */
+    --ink: #fafafa;           /* zinc-50 */
+    --text: #d4d4d8;          /* zinc-300 */
+    --muted: #71717a;         /* zinc-500 */
+    --line: #27272a;          /* zinc-800 — the theme's dark --border */
+    --brand: #2563eb;         /* blue-600 */
+    --ok: #22c55e;            /* green-500 */
+    --bad: #dc2626;
+    --warn: #fbbf24;          /* amber-400 */
+    --grey: #71717a;
+    --unc: #3b82f6;           /* blue-500 */
+    --radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ── layout (inside the shell's main surface) ─────────────── */
+.container {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 8px 40px;
+}
+
+.site-footer {
+    display: none; /* the shell renders its own footer */
+}
+
+/* ── panels / forms ───────────────────────────────────────── */
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 0 0 18px;
+}
+
+.panel h2 { margin-top: 0; font-size: 1rem; font-weight: 600; color: var(--ink); }
+.panel h3 { margin: 18px 0 10px; font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+
+.field { margin: 0 0 14px; }
+
+.field label, .field legend {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--ink);
+    font-size: 0.9rem;
+}
+
+.field legend { padding: 0; }
+
+/* A secondary label inside a fieldset, under a group of checkboxes. */
+.field .sublabel {
+    margin-top: 10px;
+    font-weight: 400;
+}
+
+input[type="text"], input[type="number"], textarea, select {
+    width: 100%;
+    max-width: 640px;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font: inherit;
+    background: var(--bg);
+    color: var(--ink);
+}
+
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 1px;
+}
+
+.checks { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+
+.check { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; }
+
+.btn {
+    display: inline-block;
+    background: var(--brand);
+    color: #fff;
+    border: 0;
+    border-radius: var(--radius);
+    padding: 9px 20px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.btn:hover { filter: brightness(1.06); }
+
+.btn-small { padding: 5px 12px; font-size: 0.9rem; }
+
+.btn-danger { background: var(--bad); }
+
+/* ── status colors ────────────────────────────────────────── */
+.status-available { color: var(--ok); }
+.status-registered { color: var(--bad); }
+.status-for-sale  { color: var(--warn); }
+.status-parked    { color: var(--grey); }
+.status-uncertain { color: var(--unc); }
+
+.badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: 1px solid currentColor;
+}
+
+/* ── misc ─────────────────────────────────────────────────── */
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+.hint { color: var(--muted); font-size: 0.85rem; font-weight: 400; }
+.muted { color: var(--muted); }
+.error {
+    color: var(--bad);
+    background: color-mix(in srgb, var(--bad) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bad) 25%, transparent);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+}
+.summary {
+    font-size: 1rem;
+    padding: 12px 16px;
+    border-left: 4px solid var(--brand);
+    background: color-mix(in srgb, var(--brand) 8%, transparent);
+    border-radius: 0 var(--radius) var(--radius) 0;
+}
+.detail { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+.price { color: var(--warn); font-weight: 600; }
+
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+@media (min-width: 720px) {
+    .container { padding-top: 4px; }
+}

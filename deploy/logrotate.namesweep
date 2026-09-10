@@ -1,0 +1,16 @@
+# NameSweep — logrotate (owner wires this up; see README "Deploy").
+#
+# The app writes one file per day: storage/logs/app-YYYY-MM-DD.log.
+# copytruncate is used because PHP appends with FILE_APPEND and the daemon
+# keeps no open handle to rotate gracefully.
+
+/var/www/namesweep/storage/logs/app-*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    copytruncate
+    missingok
+    notifempty
+    su www-data www-data
+}
