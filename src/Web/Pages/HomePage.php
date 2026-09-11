@@ -1,5 +1,7 @@
 <?php
 
+/* demo8: account/home/settings-plain.html (form) + account/members/team-members.html (report table) */
+
 declare(strict_types=1);
 
 namespace NameSweep\Web\Pages;
@@ -23,15 +25,15 @@ final class HomePage extends Page
             if ($this->isAjax()) {
                 if ($error !== null) {
                     http_response_code(422);
-                    return '<p class="error">' . Layout::e($error) . '</p>';
+                    return $this->errorHtml($error);
                 }
                 return $report;
             }
         }
 
         $body  = $this->form($error);
-        $body .= $report !== '' ? $report : '<section class="panel"><p class="muted">Run a check to see the report here.</p></section>';
-        return Layout::page('Check', $body, ['report'], ['app']);
+        $body .= $report !== '' ? $report : $this->card('Run a check to see the report here.', '');
+        return Layout::page('Check', $body, ['app']);
     }
 
     /** @return array{0:string, 1:?string} */
@@ -111,7 +113,6 @@ final class HomePage extends Page
 
     private function form(?string $error): string
     {
-        $errorHtml = $error !== null ? '<p class="error">' . Layout::e($error) . '</p>' : '';
         $tldChecks = '';
         $defaults  = $this->app['config']['default_tlds'];
         foreach ($this->tlds() as $tld) {
@@ -133,48 +134,36 @@ final class HomePage extends Page
             $currencyOptions .= '<option value="' . $currency . '"' . ($currency === $postedCurrency ? ' selected' : '') . '>' . $currency . '</option>' . PHP_EOL;
         }
 
-        return <<<HTML
-<section class="panel">
-    <h2>Check names</h2>
-    {$errorHtml}
-    <form method="post" action="{$this->base()}/" id="check-form">
-        <div class="field">
-            <label for="names">Names</label>
-            <textarea id="names" name="names" rows="3" required maxlength="2048"
-                      placeholder="lumen\nkasav\nbrightly">{$this->escPost('names', $this->post('name'))}</textarea>
-            <span class="hint">One per line or comma-separated.</span>
-        </div>
-        <fieldset class="field">
-            <legend>Suffixes</legend>
-            <div class="checks">{$tldChecks}</div>
-            <label for="extra_tlds" class="sublabel">Any other suffix
-                <span class="hint">comma or space separated, e.g. org, ai, com.do</span></label>
-            <input type="text" id="extra_tlds" name="extra_tlds" placeholder="org, ai, com.do"
-                   value="{$this->escPost('extra_tlds')}">
-        </fieldset>
-        <fieldset class="field">
-            <legend>Modules</legend>
-            <div class="checks">{$moduleChecks}</div>
-        </fieldset>
-        <fieldset class="field">
-            <legend>Trademark markets</legend>
-            <div class="checks">{$marketChecks}</div>
-        </fieldset>
-        <fieldset class="field">
-            <legend>Alternatives &amp; budget</legend>
-            <div class="checks">
-                {$this->checkbox('alternatives', '1', !isset($_POST['alternatives']) || $_POST['alternatives'] === '1', 'Also check alternative suffixes')}
-            </div>
-            <label for="budget" class="sublabel">Budget <span class="hint">rows it fits get a check; nothing is hidden</span></label>
-            <input type="number" id="budget" name="budget" min="0" step="0.01" placeholder="e.g. 50" value="{$this->escPost('budget')}">
-            <label for="currency" class="sublabel">Currency</label>
-            <select id="currency" name="currency">{$currencyOptions}</select>
-        </fieldset>
-        <div class="checks">{$this->checkbox('use_cache', '1', true, 'Use cache')}</div>
-        <button type="submit" class="btn">Check</button>
-    </form>
-</section>
-HTML;
+        $namesField = $this->fieldRow('Names', 'names',
+            '<textarea id="names" name="names" rows="3" required maxlength="2048" class="kt-input min-h-[90px]"'
+            . ' placeholder="lumen&#10;kasav&#10;brightly">' . $this->escPost('names', $this->post('name')) . '</textarea>',
+            'One per line or comma-separated.');
+
+        $suffixesField = $this->fieldRow('Suffixes', 'extra_tlds',
+            '<div class="flex flex-wrap gap-2.5">' . $tldChecks . '</div>'
+            . '<input type="text" id="extra_tlds" name="extra_tlds" class="kt-input mt-2" placeholder="org, ai, com.do" value="' . $this->escPost('extra_tlds') . '">',
+            'Any other suffix, comma or space separated, e.g. org, ai, com.do');
+
+        $modulesField = $this->fieldRow('Modules', 'modules', '<div class="flex flex-wrap gap-2.5">' . $moduleChecks . '</div>');
+        $marketsField = $this->fieldRow('Trademark markets', 'markets', '<div class="flex flex-wrap gap-2.5">' . $marketChecks . '</div>');
+
+        $altField = $this->fieldRow('Alternatives & budget', 'budget',
+            '<div class="flex flex-wrap gap-2.5">' . $this->checkbox('alternatives', '1', !isset($_POST['alternatives']) || $_POST['alternatives'] === '1', 'Also check alternative suffixes') . '</div>'
+            . '<div class="flex flex-wrap gap-2.5 mt-2">'
+            . '<input type="number" id="budget" name="budget" min="0" step="0.01" class="kt-input max-w-40" placeholder="e.g. 50" value="' . $this->escPost('budget') . '">'
+            . '<select id="currency" name="currency" class="kt-select max-w-28">' . $currencyOptions . '</select>'
+            . '</div>',
+            'Budget rows it fits get a check; nothing is hidden.');
+
+        $useCache = '<div class="flex flex-wrap gap-2.5">' . $this->checkbox('use_cache', '1', true, 'Use cache') . '</div>';
+
+        $submit = '<div><button type="submit" class="kt-btn kt-btn-primary">Check</button></div>';
+
+        $fields = $namesField . $suffixesField . $modulesField . $marketsField . $altField . $useCache . $submit;
+
+        return '<form method="post" action="' . $this->base() . '/" id="check-form">'
+            . $this->card('Check names', $this->errorHtml($error) . $fields)
+            . '</form>';
     }
 
     /** @param array<string, array<string, mixed>> $reports */
@@ -192,7 +181,7 @@ HTML;
 
         $columns = '';
         foreach ($suffixes as $tld) {
-            $columns .= '<th scope="col">.' . Layout::e($tld) . '</th>';
+            $columns .= '<th class="min-w-[110px]">.' . Layout::e($tld) . '</th>';
         }
         $body = '';
         $json = [];
@@ -208,75 +197,61 @@ HTML;
             }
             $verdict = $data['verdict']['recommendation'] ?? '';
             $details = $this->details($data);
-            $body .= '<tr><th scope="row" class="sticky-name mono">' . Layout::e($name) . '</th>' . $cells . '</tr>';
-            $body .= '<tr class="detail-row"><td colspan="' . (count($suffixes) + 1) . '"><details><summary>Full report for ' . Layout::e($name) . '</summary>'
-                . '<p class="hint">' . Layout::e((string) $verdict) . '</p>' . $details . '</details></td></tr>';
+            $body .= '<tr><th scope="row" class="sticky-name font-mono text-sm text-mono min-w-[140px] bg-background">' . Layout::e($name) . '</th>' . $cells . '</tr>';
+            $body .= '<tr><td colspan="' . (count($suffixes) + 1) . '" class="bg-muted/50">'
+                . '<details><summary class="cursor-pointer text-sm font-medium text-mono">Full report for ' . Layout::e($name) . '</summary>'
+                . '<p class="text-2sm text-secondary-foreground mt-2">' . Layout::e((string) $verdict) . '</p>' . $details . '</details></td></tr>';
         }
 
         $summary = '';
         if (count($reports) === 1) {
             $one = reset($reports);
             if (is_string($one['summary'] ?? null) && $one['summary'] !== '') {
-                $summary = '<p class="summary">' . Layout::e($one['summary']) . '</p>';
+                $summary = '<p class="text-sm text-foreground">' . Layout::e($one['summary']) . '</p>';
             }
         }
         $jsonText = htmlspecialchars((string) json_encode($json, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
-        return '<section class="panel report" id="report">'
-            . '<div class="report-heading"><div><h2>Matrix report</h2><p class="hint">Rows are names; columns are suffixes. Expand a row for module details.</p></div>'
-            . '<div class="report-actions"><button type="button" class="btn btn-small" data-export="csv">Export CSV</button><button type="button" class="btn btn-small" data-export="json">Export JSON</button></div></div>'
-            . $summary
-            . '<div class="matrix-wrap"><table class="matrix-table" data-report-json="' . $jsonText . '"><thead><tr><th scope="col" class="sticky-name">Name</th>' . $columns . '</tr></thead><tbody>' . $body . '</tbody></table></div>'
-            . '</section>';
+        $actions = '<div class="flex items-center gap-2">'
+            . '<button type="button" class="kt-btn kt-btn-sm kt-btn-outline" data-export="csv">Export CSV</button>'
+            . '<button type="button" class="kt-btn kt-btn-sm kt-btn-outline" data-export="json">Export JSON</button>'
+            . '</div>';
+
+        $table = '<div class="kt-scrollable-x-auto"><table class="kt-table kt-table-border" data-report-json="' . $jsonText . '">'
+            . '<thead><tr><th class="sticky-name min-w-[140px]">Name</th>' . $columns . '</tr></thead>'
+            . '<tbody>' . $body . '</tbody></table></div>';
+
+        return '<div id="report">' . $this->card('Matrix report', $summary . $table, $actions) . '</div>';
     }
 
     private function matrixCell(?array $row): string
     {
         if ($row === null) {
-            return '<td class="matrix-cell"><span class="hint">—</span></td>';
+            return '<td><span class="text-2sm text-secondary-foreground">—</span></td>';
         }
         $status = (string) ($row['status'] ?? 'uncertain');
         $price = $row['sale_price'] ?? ($row['pricing']['registration'] ?? null);
-        $money = is_numeric($price) ? '<span class="cell-price">' . Layout::e((string) ($row['pricing']['currency'] ?? 'USD')) . ' ' . number_format((float) $price, 2) . '</span>' : '';
-        $budget = ($row['within_budget'] ?? null) === true ? '<span class="budget-mark" title="Within budget">&#10003;</span>' : '';
-        $alternative = ($row['requested'] ?? true) === false ? ' alternative' : '';
-        return '<td class="matrix-cell status-' . Layout::e($status) . $alternative . '"><span class="matrix-status">' . Layout::e($status) . '</span>' . $budget . $money . '</td>';
+        $money = is_numeric($price) ? '<div class="text-2sm text-secondary-foreground">' . Layout::e((string) ($row['pricing']['currency'] ?? 'USD')) . ' ' . number_format((float) $price, 2) . '</div>' : '';
+        $budget = ($row['within_budget'] ?? null) === true ? ' <i class="ki-filled ki-check text-success" title="Within budget"></i>' : '';
+        $alternativeClass = ($row['requested'] ?? true) === false ? 'opacity-60' : '';
+        return '<td class="' . $alternativeClass . '">'
+            . '<span class="kt-badge kt-badge-sm kt-badge-outline ' . $this->statusBadgeClass($status) . '">' . Layout::e($status) . '</span>' . $budget . $money . '</td>';
     }
 
     private function details(array $data): string
     {
-        $html = '';
+        $html = '<div class="grid gap-3.5 mt-2">';
         foreach ($data['results'] as $module => $rows) {
-            $html .= '<section class="detail-module"><h4>' . Layout::e(ucfirst($module)) . '</h4><ul>';
+            $html .= '<div><h4 class="text-sm font-medium text-mono">' . Layout::e(ucfirst($module)) . '</h4><ul class="mt-1.5 flex flex-col gap-1">';
             foreach ($rows as $row) {
                 $target = ($row['tld'] ?? '') !== '' ? '.' . $row['tld'] : '@' . ($row['platform'] ?? '');
-                $html .= '<li><strong>' . Layout::e($target) . '</strong>: ' . Layout::e((string) ($row['status'] ?? 'uncertain'))
-                    . ' <span class="hint">' . Layout::e((string) ($row['source'] ?? '')) . '</span>'
-                    . (($row['detail'] ?? null) !== null ? ' <span class="detail">' . Layout::e((string) $row['detail']) . '</span>' : '') . '</li>';
+                $html .= '<li class="text-2sm text-secondary-foreground"><strong class="text-foreground">' . Layout::e($target) . '</strong>: ' . Layout::e((string) ($row['status'] ?? 'uncertain'))
+                    . ' <span class="text-muted-foreground">' . Layout::e((string) ($row['source'] ?? '')) . '</span>'
+                    . (($row['detail'] ?? null) !== null ? ' — ' . Layout::e((string) $row['detail']) : '') . '</li>';
             }
-            $html .= '</ul></section>';
+            $html .= '</ul></div>';
         }
-        return $html;
-    }
-
-    private function priceHtml(array $r): string
-    {
-        $currency = $r['pricing']['currency'] ?? 'USD';
-        $symbol = $currency === 'USD' ? '$' : Layout::e($currency) . ' ';
-        $sale = $r['sale_price'] ?? $r['price'] ?? null;
-        if ($sale !== null) {
-            return ' <span class="price price-ask" title="Seller\'s asking price">asking ' . $symbol . number_format((float) $sale, 2) . '</span>';
-        }
-        $reg = $r['pricing']['registration'] ?? null;
-        if ($reg !== null) {
-            return ' <span class="price price-reg">' . $symbol . number_format((float) $reg, 2) . '/yr</span>';
-        }
-        return ($r['pricing']['note'] ?? null) !== null ? ' <span class="hint">no price</span>' : '';
-    }
-
-    private function moduleLabel(string $key): string
-    {
-        return $this->engineModules()[$key] ?? ucfirst($key);
+        return $html . '</div>';
     }
 
     private function escPost(string $key, string $fallback = ''): string

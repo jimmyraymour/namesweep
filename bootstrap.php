@@ -44,7 +44,6 @@ use NameSweep\Storage\ApiKeyRepository;
 use NameSweep\Storage\CheckRepository;
 use NameSweep\Storage\Database;
 use NameSweep\Storage\SettingsStore;
-use NameSweep\Suggest\LlmClient;
 use NameSweep\Suggest\SuggestEngine;
 use NameSweep\Suggest\SuggestRepository;
 use NameSweep\Util\Env;
@@ -55,16 +54,18 @@ use NameSweep\Util\SummaryWriter;
 
 $root = __DIR__;
 
-// Shared portfolio theme (Metronic look) — lives once at the workspace root.
-// Optional on purpose: pages fall back to the app's own CSS if it is missing.
-$raymourTheme = dirname($root) . '/shared/inc/theme.php';
-if (is_file($raymourTheme)) {
-    require_once $raymourTheme;
-}
-unset($raymourTheme);
+// Shared portfolio theme (Metronic demo8 look) — lives once at the workspace
+// root and is mandatory (no per-app fallback); shared/inc/layout.php pulls in
+// theme.php + apps.php. NameSweep\Web\Layout is the thin adapter over it.
+require_once dirname($root) . '/shared/inc/layout.php';
 
 // 1. Environment — must load before any config file reads getenv().
 Env::load($root . '/.env');
+
+// Bifrost client (AI routes redesign + SSO): required here, shared by every
+// entry point (CLI, REST API, Web UI), so Bifrost::ai()/requireLogin() work
+// everywhere without each entry point requiring it separately.
+require_once dirname($root) . '/bifrost/shared/php/BifrostClient.php';
 
 // 2. Config — app.php is the main array; the rest are merged in.
 $config = require $root . '/config/app.php';
@@ -284,11 +285,11 @@ if ($db !== null) {
         $config['alternative_tlds'] ?? []
     );
 
-    // M5 — Suggest mode + report summaries. Both share one LlmClient.
-    $llm            = new LlmClient($http, $config['llm'], $logger);
+    // M5 — Suggest mode + report summaries. Both call Bifrost::ai() directly
+    // (AI routes redesign) — no local LLM client, no provider config here.
     $suggestRepo    = new SuggestRepository($db);
-    $suggestEngine  = new SuggestEngine($llm, $engine, $suggestRepo, $logger, $config);
-    $summaryWriter  = new SummaryWriter($llm, $db, $logger, $config);
+    $suggestEngine  = new SuggestEngine($engine, $suggestRepo, $logger, $config);
+    $summaryWriter  = new SummaryWriter($db, $logger, $config);
 }
 
 return [
@@ -303,7 +304,6 @@ return [
     'rdap_bootstrap' => $db !== null ? $rdapBootstrap : null,
     'api_keys'       => $apiKeys,
     'rate_limiter'   => new RateLimiter($config['rate_limit']['per_minute'], $root . '/storage/tmp'),
-    'llm'            => $llm,
     'suggest_repo'   => $suggestRepo,
     'suggest_engine' => $suggestEngine,
     'summary_writer' => $summaryWriter,

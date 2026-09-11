@@ -21,10 +21,10 @@ if (form) {
             const html = await res.text();
             document.querySelector('#results')?.remove();
 
-            const holder = document.createElement('section');
+            const holder = document.createElement('div');
             holder.id = 'results';
             holder.innerHTML = html;
-            form.closest('.panel')?.after(holder);
+            form.closest('.kt-card')?.after(holder);
         } catch {
             wait.textContent = 'Request failed — try again.';
         } finally {

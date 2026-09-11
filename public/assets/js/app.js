@@ -21,10 +21,10 @@ if (form) {
             const res = await postFragment(form.action || '/', form);
             const html = await res.text();
             document.querySelector('#report')?.remove();
-            const holder = document.createElement('section');
+            const holder = document.createElement('div');
             holder.id = 'report';
             holder.innerHTML = html;
-            form.closest('.panel')?.after(holder);
+            form.closest('.kt-card')?.after(holder);
         } catch {
             btn.textContent = 'Check';
         } finally {
@@ -39,7 +39,7 @@ document.addEventListener('click', (event) => {
     if (!button) {
         return;
     }
-    const table = button.closest('.report')?.querySelector('[data-report-json]');
+    const table = button.closest('#report')?.querySelector('[data-report-json]');
     if (!table) {
         return;
     }

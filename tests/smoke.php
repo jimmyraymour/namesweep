@@ -8,8 +8,8 @@
  * Covers the §15 acceptance checklist items that can be verified without a
  * browser or a production deployment (network-dependent lookups run live but
  * degrade to SKIP on transport errors rather than failing the suite; the
- * LLM section is skipped when Ollama is unreachable). Exits 0 = all green,
- * 1 = one or more FAIL, 2 = run aborted.
+ * LLM section is skipped when Bifrost reports no usable AI route). Exits
+ * 0 = all green, 1 = one or more FAIL, 2 = run aborted.
  *
  * The API/rate-limit/UI sections spawn the built-in dev server on a random
  * port with RATE_LIMIT_PER_MINUTE lowered so the 61st-request check stays
@@ -451,9 +451,9 @@ if ($engine !== null) {
     // §15.5 contract: 200 with no positive signal → uncertain, NEVER available.
     // Provider-level, deterministic (no network).
     $twitter = new NameSweep\Providers\Social\TwitterProvider();
-    $noSignal = $twitter->classify(200, '<html><body>This profile does not exist or the page is broken.</body></html>');
+    $noSignal = $twitter->classify(200, '<body>This profile does not exist or the page is broken.</body>');
     check('200 without signal → uncertain (never available)', ($noSignal['status'] ?? '') === 'uncertain', 'status=' . ($noSignal['status'] ?? '?'));
-    $gone = $twitter->classify(404, '<html><body>404</body></html>');
+    $gone = $twitter->classify(404, '<body>404</body>');
     check('404 → available', ($gone['status'] ?? '') === 'available');
 }
 
@@ -651,10 +651,15 @@ if ($pricedRows === 0) {
 }
 
 // ── 15.7 Suggest ───────────────────────────────────────────────────────────
+// AI routes redesign: this app no longer talks to a provider directly, so
+// gate the live run on Bifrost reporting a usable AI route via `health`
+// rather than probing Ollama's port ourselves.
 section('15.7 Suggest');
-$ollama = httpGet('http://127.0.0.1:11434/api/tags', [], 3);
-if ($ollama['status'] !== 200) {
-    skip('suggest live run', 'Ollama unreachable');
+$healthCheck = cli(['health']);
+$healthJson = json_decode($healthCheck['out'], true);
+$aiOk = is_array($healthJson) && ($healthJson['ai'] ?? '') === 'ok';
+if (!$aiOk) {
+    skip('suggest live run', 'Bifrost reports no usable AI route (' . ($healthJson['ai'] ?? 'unknown') . ')');
 } else {
     // Domain-only filter: the social platforms are network-dependent in this
     // environment (Instagram can bot-wall → uncertain), which would reject
@@ -745,21 +750,20 @@ $runPhp = static function (string $code): string {
     unlink($tmp);
     return $out;
 };
-$probe = static function (string $title, string $body, array $styles, array $scripts) use ($root, $runPhp): string {
+$probe = static function (string $title, string $body, array $scripts) use ($root, $runPhp): string {
     $env = "\$_SERVER['REQUEST_METHOD']='GET'; \$_SERVER['REQUEST_URI']='/'; \$_SERVER['SCRIPT_NAME']='/index.php';\n"
         . 'require ' . var_export($root . '/bootstrap.php', true) . ";\n"
         . 'echo NameSweep\\Web\\Layout::page('
         . var_export($title, true) . ', '
         . var_export($body, true) . ', '
-        . var_export($styles, true) . ', '
         . var_export($scripts, true) . ');';
     return $runPhp($env);
 };
-$probeHtml = $probe('Check', '<p>x</p>', ['report'], ['app']);
-check('layout renders page css/js with well-formed URLs',
-    str_contains($probeHtml, 'href="/assets/css/report.css"') && str_contains($probeHtml, 'src="/assets/js/app.js"')
-    && !str_contains($probeHtml, 'href="\\/assets') && !str_contains($probeHtml, 'src="\\/assets'),
-    'root-relative asset links, no backslash-mangled URLs');
+$probeHtml = $probe('Check', '<p>x</p>', ['app']);
+check('layout renders the shared theme stylesheet + page js with well-formed URLs',
+    str_contains($probeHtml, 'href="/shared/theme/assets/css/styles.css"') && str_contains($probeHtml, 'src="/assets/js/app.js"')
+    && !str_contains($probeHtml, 'href="\\/shared') && !str_contains($probeHtml, 'src="\\/assets'),
+    'root-relative asset links, no backslash-mangled URLs, no app-local stylesheet');
 check('home markup has check form + shared shell',
     (static function () use ($root, $runPhp): bool {
         // HomePage::render() on a bare GET = form + placeholder, through Layout.
@@ -772,9 +776,12 @@ check('home markup has check form + shared shell',
     })(),
     'names/modules/extra_tlds fields present inside the themed shell');
 
-// ── 15.7 (b) LLM down → clear exit ─────────────────────────────────────────
-$dead = cli(['suggest', 'anything'], ['OLLAMA_BASE_URL' => 'http://127.0.0.1:59999']);
-check('suggest with LLM down exits 3 cleanly', $dead['code'] === 3 && !str_contains($dead['out'], 'Fatal error'), 'code=' . $dead['code']);
+// ── 15.7 (b) Bifrost unreachable → clear exit (AI routes redesign: this app
+// no longer knows a provider URL to point away from; point BIFROST_BASE_URL
+// at a dead port instead, so every AI attempt fails the same way a downed
+// LLM backend used to) ──────────────────────────────────────────────────────
+$dead = cli(['suggest', 'anything'], ['BIFROST_BASE_URL' => 'http://127.0.0.1:59999']);
+check('suggest with Bifrost unreachable exits 3 cleanly', $dead['code'] === 3 && !str_contains($dead['out'], 'Fatal error'), 'code=' . $dead['code']);
 
 // ── Summary ────────────────────────────────────────────────────────────────
 echo PHP_EOL . str_repeat('-', 50) . PHP_EOL;

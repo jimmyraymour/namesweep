@@ -1,5 +1,7 @@
 <?php
 
+/* demo8: account/home/settings-plain.html (form) + network/user-cards/mini-cards.html (candidate cards) */
+
 declare(strict_types=1);
 
 namespace NameSweep\Web\Pages;
@@ -19,15 +21,15 @@ final class SuggestPage extends Page
             if ($this->isAjax()) {
                 if ($error !== null) {
                     http_response_code(422);
-                    return '<p class="error">' . Layout::e($error) . '</p>';
+                    return $this->errorHtml($error);
                 }
                 return $result;
             }
         }
 
         $body  = $this->form($error);
-        $body .= $result !== null ? $result : '<section class="panel"><p class="muted">Suggestions appear here. Each round takes a minute or two.</p></section>';
-        return Layout::page('Suggest', $body, ['suggest', 'report'], ['suggest']);
+        $body .= $result !== null ? $result : '<div id="results">' . $this->card('Suggestions', '<p class="text-sm text-secondary-foreground">Suggestions appear here. Each round takes a minute or two.</p>') . '</div>';
+        return Layout::page('Suggest', $body, ['suggest']);
     }
 
     /** @return array{0:?string, 1:?string} */
@@ -61,7 +63,6 @@ final class SuggestPage extends Page
 
     private function form(?string $error): string
     {
-        $errorHtml = $error !== null ? '<p class="error">' . Layout::e($error) . '</p>' : '';
         $tldChecks = '';
         $defaults = $this->app['config']['default_tlds'];
         foreach ($this->tlds() as $tld) {
@@ -69,27 +70,25 @@ final class SuggestPage extends Page
         }
         $moduleChecks = $this->checkbox('modules[]', 'domain', true, 'Domain') . $this->checkbox('modules[]', 'social', true, 'Social');
 
-        return <<<HTML
-<section class="panel">
-    <h2>Suggest names</h2>
-    {$errorHtml}
-    <form method="post" action="{$this->base()}/suggest" id="suggest-form">
-        <div class="field">
-            <label for="description">Project description</label>
-            <textarea id="description" name="description" rows="4" required placeholder="A fintech app for Haitian small businesses, focused on mobile money.">{$this->escPost('description')}</textarea>
-        </div>
-        <div class="field">
-            <label for="count">How many names to keep</label>
-            <input type="number" id="count" name="count" min="1" max="50" value="10">
-        </div>
-        <fieldset class="field"><legend>TLDs</legend><div class="checks">{$tldChecks}</div></fieldset>
-        <fieldset class="field"><legend>Modules that must be available</legend><div class="checks">{$moduleChecks}</div></fieldset>
-        <div class="checks">{$this->checkbox('include_rejects', '1', true, 'Show rejected names')}</div>
-        <button type="submit" class="btn" id="suggest-btn">Suggest</button>
-        <span class="hint" id="suggest-wait" hidden>Working - this can take a few minutes...</span>
-    </form>
-</section>
-HTML;
+        $descriptionField = $this->fieldRow('Project description', 'description',
+            '<textarea id="description" name="description" rows="4" required class="kt-input min-h-[110px]"'
+            . ' placeholder="A fintech app for Haitian small businesses, focused on mobile money.">' . $this->escPost('description') . '</textarea>');
+        $countField = $this->fieldRow('How many names to keep', 'count',
+            '<input type="number" id="count" name="count" min="1" max="50" value="10" class="kt-input max-w-28">');
+        $tldsField = $this->fieldRow('TLDs', 'tlds', '<div class="flex flex-wrap gap-2.5">' . $tldChecks . '</div>');
+        $modulesField = $this->fieldRow('Modules that must be available', 'modules', '<div class="flex flex-wrap gap-2.5">' . $moduleChecks . '</div>');
+        $rejectsField = '<div class="flex flex-wrap gap-2.5">' . $this->checkbox('include_rejects', '1', true, 'Show rejected names') . '</div>';
+
+        $submit = '<div class="flex items-center gap-2.5">'
+            . '<button type="submit" class="kt-btn kt-btn-primary" id="suggest-btn">Suggest</button>'
+            . '<span class="text-2sm text-secondary-foreground" id="suggest-wait" hidden>Working — this can take a few minutes...</span>'
+            . '</div>';
+
+        $fields = $descriptionField . $countField . $tldsField . $modulesField . $rejectsField . $submit;
+
+        return '<form method="post" action="' . $this->base() . '/suggest" id="suggest-form">'
+            . $this->card('Suggest names', $this->errorHtml($error) . $fields)
+            . '</form>';
     }
 
     private function result(array $data): string
@@ -101,35 +100,37 @@ HTML;
             }
         }
 
-        $rows = '';
+        $cards = '';
         foreach ($candidates as $candidate) {
             $cleared = ($candidate['cleared'] ?? false) === true;
-            $status = $cleared ? 'cleared' : 'rejected';
-            $reason = $candidate['rejection_reason'] ?? 'did not clear all requested modules';
-            $rows .= '<article class="candidate ' . ($cleared ? 'candidate-cleared' : 'candidate-rejected') . '">'
-                . '<div class="candidate-heading"><h3 class="mono">' . Layout::e((string) $candidate['name']) . '</h3>'
-                . '<span class="badge ' . ($cleared ? 'status-available' : 'status-registered') . '">' . $status . '</span></div>'
-                . (!$cleared ? '<p class="hint">' . Layout::e((string) $reason) . '</p>' : '')
+            $status  = $cleared ? 'cleared' : 'rejected';
+            $reason  = $candidate['rejection_reason'] ?? 'did not clear all requested modules';
+            $cards .= '<div class="kt-card">'
+                . '<div class="kt-card-header"><h3 class="kt-card-title font-mono">' . Layout::e((string) $candidate['name']) . '</h3>'
+                . '<span class="kt-badge kt-badge-sm kt-badge-outline ' . $this->statusBadgeClass($status) . '">' . $status . '</span></div>'
+                . '<div class="kt-card-content grid gap-2.5">'
+                . (!$cleared ? '<p class="text-2sm text-secondary-foreground">' . Layout::e((string) $reason) . '</p>' : '')
                 . $this->checks($candidate['checks'] ?? [])
-                . '</article>';
+                . '</div></div>';
         }
-        if ($rows === '') {
-            $rows = '<p class="muted">No candidates were returned.</p>';
+        if ($cards === '') {
+            $cards = '<p class="text-sm text-secondary-foreground">No candidates were returned.</p>';
         }
 
-        return '<section class="panel results" id="results"><h2>Suggestion report</h2>'
-            . '<p class="hint">Session <span class="mono">' . Layout::e((string) ($data['session_id'] ?? '')) . '</span> · ' . (int) ($data['iterations'] ?? 0) . ' iteration(s)</p>'
-            . '<div class="candidate-list">' . $rows . '</div></section>';
+        $meta = '<p class="text-2sm text-secondary-foreground">Session <span class="font-mono">' . Layout::e((string) ($data['session_id'] ?? '')) . '</span> · ' . (int) ($data['iterations'] ?? 0) . ' iteration(s)</p>';
+
+        return '<div id="results">' . $this->card('Suggestion report', $meta . '<div class="grid gap-5 lg:grid-cols-2 xl:grid-cols-3">' . $cards . '</div>') . '</div>';
     }
 
     private function checks(array $checks): string
     {
-        $html = '<div class="tags">';
+        $html = '<div class="flex flex-wrap gap-2">';
         foreach (($checks['results'] ?? []) as $rows) {
             foreach ($rows as $row) {
                 $target = ($row['tld'] ?? '') !== '' ? '.' . $row['tld'] : '@' . ($row['platform'] ?? '');
-                $html .= '<span class="tag tag-' . Layout::e((string) ($row['status'] ?? 'uncertain')) . '">'
-                    . Layout::e($target) . ' ' . Layout::e((string) ($row['status'] ?? 'uncertain'))
+                $status = (string) ($row['status'] ?? 'uncertain');
+                $html .= '<span class="kt-badge kt-badge-sm kt-badge-outline ' . $this->statusBadgeClass($status) . '">'
+                    . Layout::e($target) . ' ' . Layout::e($status)
                     . $this->priceHtml($row)
                     . '</span>';
             }
@@ -149,7 +150,7 @@ HTML;
         }
         $currency = (string) ($row['pricing']['currency'] ?? 'USD');
         $symbol = $currency === 'USD' ? '$' : Layout::e($currency) . ' ';
-        return ' <span class="tag-price">' . $symbol . number_format((float) $registration, 2) . '/yr</span>';
+        return ' · ' . $symbol . number_format((float) $registration, 2) . '/yr';
     }
 
     private function escPost(string $key): string
