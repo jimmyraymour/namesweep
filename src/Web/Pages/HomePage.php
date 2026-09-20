@@ -32,7 +32,7 @@ final class HomePage extends Page
         }
 
         $body  = $this->form($error);
-        $body .= $report !== '' ? $report : $this->card('Run a check to see the report here.', '');
+        $body .= $report !== '' ? $report : $this->card('Run a check to see the report here.', '', '', 'report');
         return Layout::page('Check', $body, ['app']);
     }
 

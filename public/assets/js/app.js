@@ -2,7 +2,7 @@
  * app.js — progressive enhancement for the Home check page.
  * Plain POST rendering remains the fallback when JS is off.
  */
-import { postFragment } from './api.js';
+import { postFragment, renderFragment } from './api.js';
 
 const form = document.getElementById('check-form');
 if (form) {
@@ -19,12 +19,7 @@ if (form) {
 
         try {
             const res = await postFragment(form.action || '/', form);
-            const html = await res.text();
-            document.querySelector('#report')?.remove();
-            const holder = document.createElement('div');
-            holder.id = 'report';
-            holder.innerHTML = html;
-            form.closest('.kt-card')?.after(holder);
+            renderFragment(form, await res.text(), 'report');
         } catch {
             btn.textContent = 'Check';
         } finally {
