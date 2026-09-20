@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace NameSweep\Api;
 
-use NameSweep\Util\HttpClient;
-
 /**
  * Simple front-controller router for /api/v1/*.
  */
@@ -62,11 +60,9 @@ final class Router
         // Public endpoint.
         if ($route === '/health' && $method === 'GET') {
             $this->json(200, [
-                'status'     => 'ok',
-                'db'         => $this->app['db'] !== null ? 'ok' : 'down',
-                'ollama'     => $this->ollamaStatus(),
-                'openrouter' => ($this->app['config']['llm']['openrouter_api_key'] ?? '') !== '' ? 'ok' : 'down',
-            ]);
+                'status' => 'ok',
+                'db'     => $this->app['db'] !== null ? 'ok' : 'down',
+            ] + $this->aiStatus());
             return;
         }
 
@@ -175,14 +171,23 @@ final class Router
         ]);
     }
 
-    private function ollamaStatus(): string
+    /**
+     * AI status via Bifrost (AI routes redesign) — this app no longer knows
+     * about Ollama/OpenRouter directly, only whether Bifrost has granted it
+     * any routes to call.
+     *
+     * @return array{ai:string,ai_routes:int}
+     */
+    private function aiStatus(): array
     {
-        $base = rtrim($this->app['config']['llm']['ollama_base_url'] ?? 'http://127.0.0.1:11434', '/');
+        if (!class_exists('Bifrost', false)) {
+            return ['ai' => 'unavailable', 'ai_routes' => 0];
+        }
         try {
-            $res = (new HttpClient(3, 'NameSweep/1.0'))->get($base . '/api/tags');
-            return $res['status'] === 200 ? 'ok' : 'down';
+            $routes = \Bifrost::aiRoutes();
+            return ['ai' => $routes !== [] ? 'ok' : 'no routes granted', 'ai_routes' => count($routes)];
         } catch (\Throwable) {
-            return 'down';
+            return ['ai' => 'down', 'ai_routes' => 0];
         }
     }
 

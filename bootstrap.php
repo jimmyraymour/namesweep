@@ -207,12 +207,18 @@ if ($db !== null) {
     // Available names have no delegation to read — only an aftermarket API can
     // report a registry premium or reserved name.
     $availableChain = [];
-    if (($config['aftermarket']['openprovider_api_key'] ?? '') !== '') {
+    // Both halves are required: Openprovider authenticates with a username and
+    // a control-panel password hash, not a single static key.
+    if (($config['aftermarket']['openprovider_username'] ?? '') !== ''
+        && ($config['aftermarket']['openprovider_password_hash'] ?? '') !== '') {
         $availableChain[] = new OpenproviderProvider(
-            $config['aftermarket']['openprovider_api_url'] ?? 'https://api.openprovider.com/v1beta',
-            $config['aftermarket']['openprovider_api_key'],
+            $config['aftermarket']['openprovider_api_url'] ?? 'https://api.openprovider.eu/v1',
+            $config['aftermarket']['openprovider_username'],
+            $config['aftermarket']['openprovider_password_hash'],
             $http,
-            $logger
+            $logger,
+            $config['aftermarket']['openprovider_token_cache'] ?? null,
+            $config['aftermarket']['openprovider_provider'] ?? 'SEDO'
         );
     }
     $availableChain[] = $parked;

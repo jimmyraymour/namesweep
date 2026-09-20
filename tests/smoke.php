@@ -769,7 +769,7 @@ check('home markup has check form + shared shell',
         // HomePage::render() on a bare GET = form + placeholder, through Layout.
         $code = "\$_SERVER['REQUEST_METHOD']='GET'; \$_SERVER['REQUEST_URI']='/'; \$_SERVER['SCRIPT_NAME']='/index.php';\n"
             . '$app = require ' . var_export($root . '/bootstrap.php', true) . ";\n"
-            . 'echo (new NameSweep\\Web\\Pages\\HomePage(\$app))->render();';
+            . 'echo (new NameSweep\\Web\\Pages\\HomePage($app))->render();';
         $html = $runPhp($code);
         return str_contains($html, 'name="modules[]"') && str_contains($html, 'name="names"')
             && str_contains($html, 'name="extra_tlds"') && str_contains($html, 'kt-menu');

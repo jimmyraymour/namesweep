@@ -12,6 +12,8 @@ storage/logs/*
 storage/cache/rdap_bootstrap.json
 storage/cache/whois_servers.json
 storage/cache/tld_pricing.json
+# Live Openprovider bearer token - never commit
+storage/cache/openprovider_token.json
 storage/tmp/*
 storage/settings.json
 !storage/logs/.gitkeep

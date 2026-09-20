@@ -19,7 +19,9 @@ built so it can be read, debugged, and extended line by line.
 - PHP **8.1+** (tested on 8.3) with `curl`, `pdo_mysql`, `json`, `mbstring`
 - MySQL **8.x**
 - Composer (autoloader only — no other packages)
-- Optional: Ollama (local LLM for Suggest mode) and/or an OpenRouter API key
+- Suggest mode's LLM calls go through Bifrost (`Bifrost::ai()`, AI routes
+  redesign) — no local Ollama/OpenRouter config in this app; see root
+  `CLAUDE.md` and Bifrost's AI & Keys admin UI
 
 ## Setup (development)
 
@@ -29,7 +31,7 @@ composer install
 
 # 2. Configure
 cp .env.example .env
-# edit .env: DB_PASS, and optionally OPENROUTER_API_KEY / OPENPROVIDER_API_KEY
+# edit .env: DB_PASS, and optionally OPENPROVIDER_USERNAME + OPENPROVIDER_PASSWORD_HASH
 
 # 3. Database
 mysql -u root -p -e "CREATE DATABASE namesweep CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
@@ -67,7 +69,7 @@ src/             PSR-4 root (NameSweep\)
   Engine.php     Core orchestrator — the only class UI/CLI/API call
   Modules/       Domain, Marketplace, Social, Trademark (ModuleInterface)
   Providers/     RDAP, WHOIS, aftermarket, social, trademark providers
-  Suggest/       SuggestEngine + LlmClient (Ollama → OpenRouter)
+  Suggest/       SuggestEngine — calls Bifrost::ai('suggest', ...)
   Storage/       Database (PDO), Check/Suggest/ApiKey repositories
   Api/           Router, Auth, controllers
   Cli/           CLI command parser/dispatcher
@@ -235,7 +237,10 @@ can report a registry premium or reserved name:
 
 1. **RobotDomainSearch** (keyless) — fan-out across candidate TLDs in parallel via
    `HttpClient::getMulti` (capped at `AFTERMARKET_CONCURRENCY`, default 5).
-2. **Openprovider** (Sedo/Afternic) — only wired when `OPENPROVIDER_API_KEY` is set.
+2. **Openprovider** (Sedo/Afternic) — only wired when `OPENPROVIDER_USERNAME` and
+   `OPENPROVIDER_PASSWORD_HASH` are both set. Openprovider issues no static API key: the
+   control-panel hash is a password exchanged at `POST /auth/login` for a short-lived
+   bearer token, cached in `storage/cache/openprovider_token.json`.
 3. **`ParkedPageDetector`**.
 
 A TLD the Domain module returned as `uncertain` is skipped: there is no honest aftermarket
@@ -286,7 +291,7 @@ businesses as negative controls) — **20/20 correct**.
 > accept connections** (timeout on both http and https). It now serves only the `available`
 > chain, where it falls through to Openprovider/parked detector as designed. The endpoint is
 > configurable: `ROBOTDOMAINSEARCH_AVAILABILITY_URL` and `ROBOTDOMAINSEARCH_AFTERMARKET_URL`
-> (both use `{domain}` as the placeholder). Once you confirm the live endpoint on the VPS, set
+> (both use `{domain}` as the placeholder). If the endpoint ever returns, set
 > these and the tier goes live — no code change needed.
 
 **Social** (`SocialModule`) — checks the platforms in `config/social.php` (X, Instagram,
@@ -298,19 +303,19 @@ for 7 days.
 
 ## Suggest & Summary modules (M5)
 
-**Suggest** (`SuggestEngine` + `LlmClient`) — LLM loop: prompt Ollama (primary) or OpenRouter
-(fallback) for N candidate names → run `Engine::check` on each (domain + social) → keep only
-names fully `available` on every requested TLD and platform → repeat with the rejected list as
-context, max 5 iterations. Every name is persisted per session (`suggest_sessions` +
-`suggest_candidates`) with its iteration and kept flag.
+**Suggest** (`SuggestEngine`) — LLM loop via `Bifrost::ai('suggest', ...)` for N candidate
+names → run `Engine::check` on each (domain + social) → keep only names fully `available` on
+every requested TLD and platform → repeat with the rejected list as context, max 5 iterations.
+Every name is persisted per session (`suggest_sessions` + `suggest_candidates`) with its
+iteration and kept flag.
 
 - `php bin/namesweep suggest "A fintech app for Haiti" --count=10`
 - `POST /api/v1/suggest` `{"description": "...", "count": 10}` · `GET /api/v1/suggest/{sessionId}`
-- Backend fallback: empty output, error, or 3× identical output → switch backend. Strict JSON
-  parse with one retry, then the other backend.
-- Prompts are in `config/app.php` (`prompts.*`), env-tunable: `OLLAMA_MODEL` (default
-  `qwen2.5:3b` — `llama3.1:8b` OOM-kills on this 8 GB box), `SUGGEST_MAX_ITERATIONS`,
-  `SUGGEST_TEMPERATURE`.
+- Provider/model, and the Local Ollama → OpenRouter fallback order, are configured on the
+  `namesweep` app's `suggest` job in Bifrost's AI & Keys admin UI — not in this app. A step
+  that returns unparseable JSON is a failed attempt; Bifrost tries the job's next step.
+- Prompts are in `config/app.php` (`prompts.*`); `SUGGEST_MAX_ITERATIONS` and
+  `SUGGEST_TEMPERATURE` stay env-tunable here (app-level behaviour, not provider config).
 
 **Summary** (`SummaryWriter`) — one tweet-length LLM sentence (temp 0.2) at the top of each
 check report, cached in `report_summaries` and regenerated only when the newest check result is
@@ -362,9 +367,10 @@ can be skipped entirely: CLI `--no-trademark`, API `"trademark": false`. Cache T
   writes a `source='manual'` row ("manually verified by <key name> at <timestamp> — <note>")
   that later checks read back from cache.
 
-## Deploy (VPS)
+## Deploy
 
-Assets provided in `deploy/` — wire them up:
+Reference only — where NameSweep runs (this machine, a VPS, anywhere) is an
+operational choice, not outstanding work. Assets provided in `deploy/` if you want them:
 
 - **nginx** — `deploy/nginx.namesweep.conf` (server block; adjust `server_name`,
   `root`, and the PHP-FPM socket). Routing mirrors the `.htaccess`: `/api/v1/*` → `api.php`,
@@ -375,8 +381,8 @@ Assets provided in `deploy/` — wire them up:
   (Apache needed the `SetEnvIf` in `.htaccess`; nginx does not).
 - **logrotate** — `deploy/logrotate.namesweep` → copy to `/etc/logrotate.d/namesweep`
   (daily, 14 kept, compressed; `copytruncate` because the app appends per-process).
-- **Ollama** — run on the VPS or elsewhere and set `OLLAMA_BASE_URL` in `.env`
-  (model `qwen2.5:3b`; `llama3.1:8b` OOM-kills on an 8 GB box).
+- **Ollama** — the shared portfolio route ("Local Ollama 01") in Bifrost's AI & Keys admin UI
+  points at wherever it runs; nothing to configure in this app's `.env`.
 - **DB** — MySQL 8 with `database/schema.sql`; `.env` `DB_*` vars.
 - Sanity after wiring: `php bin/namesweep health`, `php tests/smoke.php`,
   `curl https://<host>/api/v1/health`.
@@ -387,10 +393,10 @@ Assets provided in `deploy/` — wire them up:
   `bootstrap.txt` (verified registered + available); `.ht` is served by RDAP
   (`rdap.nic.ht`) — its WHOIS server is IPv6-only with port 43 closed from our
   networks, so RDAP is both the registry's own protocol and the working one.
-- **Ollama** — running on the VPS (verified `ok` in `GET /api/v1/health`).
-- **`OPENROUTER_API_KEY`** — LLM fallback when Ollama is down.
-- **`OPENPROVIDER_API_KEY`** — optional aftermarket tier (Sedo/Afternic).
-- **Deploy** — nginx + PHP-FPM + logrotate on the VPS per README "Deploy".
+- **AI routes** — the `suggest`/`summary` jobs' route + model steps are configured in
+  Bifrost's AI & Keys admin UI (verified `ai: ok` in `GET /api/v1/health`), not in this app.
+- **`OPENPROVIDER_USERNAME` + `OPENPROVIDER_PASSWORD_HASH`** — optional aftermarket tier
+  (Sedo/Afternic), against `https://api.openprovider.eu/v1`.
 
 ## Calling NameSweep from a coding agent
 
@@ -444,6 +450,6 @@ Milestones tracked in `PLAN.md` and reported to the Meridian tracker (project `n
 Current: **M1–M14 implemented**. M12 adds alternatives and budget (default-on in the UI, opt-in
 API/CLI; budget ranks and never filters); M13 adds CLI/UI batch matrix reports and report-style
 Suggest output; M14 adds deterministic verdicts and TLD/pricing discovery. Earlier phases were
-verified live on the VPS (`http://localhost/namesweep/public/`). Run `php tests/smoke.php`
+verified live locally (`http://localhost/namesweep/public/`). Run `php tests/smoke.php`
 for the acceptance battery (structure, CLI, engine, marketplace/social contracts, trademark,
 pricing, M12-M14, REST API incl. rate limiting, suggest, and web UI).

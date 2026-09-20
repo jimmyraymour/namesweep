@@ -249,11 +249,10 @@ final class Command
 
     private function health(): int
     {
-        $db    = $this->app['db'] !== null ? 'ok' : 'down';
-        $ollama = $this->ollamaStatus();
-        $openrouter = ($this->app['config']['llm']['openrouter_api_key'] ?? '') !== '' ? 'ok' : 'down';
+        $db = $this->app['db'] !== null ? 'ok' : 'down';
+        $ai = $this->aiStatus();
 
-        $data = ['status' => 'ok', 'db' => $db, 'ollama' => $ollama, 'openrouter' => $openrouter];
+        $data = ['status' => 'ok', 'db' => $db] + $ai;
         echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
 
         return $db === 'ok' ? 0 : 3;
@@ -301,7 +300,7 @@ Commands:
   key:list                      List API keys
   key:revoke   <id>             Revoke an API key
   cache:clear  [--module=domain]  Clear cached checks
-  health                        Check DB / Ollama / OpenRouter
+  health                        Check DB / Bifrost AI routes
   rdap:refresh                  Re-fetch the IANA RDAP bootstrap
   help                          Show this help
 
@@ -492,14 +491,23 @@ TXT;
         return array_values(array_filter(array_map('trim', explode(',', $value)), static fn ($v) => $v !== ''));
     }
 
-    private function ollamaStatus(): string
+    /**
+     * AI status via Bifrost (AI routes redesign) — this app no longer knows
+     * about Ollama/OpenRouter directly, only whether Bifrost has granted it
+     * any routes to call.
+     *
+     * @return array{ai:string,ai_routes:int}
+     */
+    private function aiStatus(): array
     {
-        $base = rtrim($this->app['config']['llm']['ollama_base_url'] ?? 'http://127.0.0.1:11434', '/');
+        if (!class_exists('Bifrost', false)) {
+            return ['ai' => 'unavailable', 'ai_routes' => 0];
+        }
         try {
-            $res = (new HttpClient(3, 'NameSweep/1.0'))->get($base . '/api/tags');
-            return $res['status'] === 200 ? 'ok' : 'down';
+            $routes = \Bifrost::aiRoutes();
+            return ['ai' => $routes !== [] ? 'ok' : 'no routes granted', 'ai_routes' => count($routes)];
         } catch (\Throwable) {
-            return 'down';
+            return ['ai' => 'down', 'ai_routes' => 0];
         }
     }
 }

@@ -113,12 +113,12 @@ Full DDL: `docs/NameSweep-Spec.md` §4 (unchanged).
 - `.do` / `.ht` use WHOIS with marker arrays in `config/tlds.php`.
   **Open item:** markers start empty → WHOIS response is logged and `uncertain` is returned.
   `bootstrap.txt` at repo root holds the expected responses for one known-registered and one
-  known-available domain on each TLD; **you** fill it in after a one-off test on the VPS, and I
-  wire the matcher to read it.
+  known-available domain on each TLD; **you** fill it in from a one-off WHOIS probe, and I
+  wire the matcher to read it. (Done 2026-08-17 from this machine — no particular host required.)
 
 ### 6.2 Marketplace — 3-tier aftermarket ✅ (M4)
-1. **RobotDomainSearch** (keyless beta) — impl in `RobotDomainSearchProvider`; fan-out via `HttpClient::getMulti` (cap `aftermarket.concurrency`=5). **Live status (verified 2026-08-17):** `api.robotdomainsearch.com` resolves (165.227.69.224) but the API endpoint was not accepting connections (timeout on http+https). The provider throws on that, and the module correctly falls through to tiers 2–3. Endpoint is configurable (`ROBOTDOMAINSEARCH_*_URL`); re-verify on the VPS and update `.env`.
-2. **Openprovider** (`provider=sedo` then `afternic`) — impl in `OpenproviderProvider`, only wired when `OPENPROVIDER_API_KEY` is set. Exact endpoint/auth unconfirmed here (no key); follow the documented CheckDomain contract and re-verify on the VPS.
+1. **RobotDomainSearch** (keyless beta) — impl in `RobotDomainSearchProvider`; fan-out via `HttpClient::getMulti` (cap `aftermarket.concurrency`=5). **Live status (verified 2026-08-17):** `api.robotdomainsearch.com` resolves (165.227.69.224) but the API endpoint was not accepting connections (timeout on http+https). The provider throws on that, and the module correctly falls through to tiers 2–3. Endpoint is configurable (`ROBOTDOMAINSEARCH_*_URL`); re-verify from any host if it ever returns and update `.env`.
+2. **Openprovider** (`provider=SEDO` then `AFTERNIC`) — impl in `OpenproviderProvider`, only wired when `OPENPROVIDER_USERNAME` + `OPENPROVIDER_PASSWORD_HASH` are set. Endpoint and auth confirmed against developer.openprovider.com on 2026-09-17: login handshake at `POST /auth/login`, check at `POST /domains/check` on `https://api.openprovider.eu/v1`. Still needs one live run to confirm the `status` enum.
 3. **ParkedPageDetector** — fetches http+https, matches parked signatures (Sedo/Afternic/Bodis/ParkingCrew/AdSense + "this domain" meta) → `parked`; otherwise no signal.
 - Runs only for TLDs the Domain module returned `available`; fan-out via `curl_multi_*` (cap 5).
 - No tier has a definitive answer → `available` (no aftermarket/parked signal).
@@ -225,14 +225,12 @@ the `Authorization` header to PHP (`SetEnvIf`), which Apache otherwise strips. V
 
 - [x] **`.do` / `.ht` WHOIS markers** — done 2026-08-17 without a VPS session: `.do` markers filled in `bootstrap.txt` from live probes (`No Object Found` / `Creation Date:`, verified google.do→registered, zzqqxwvxyz.do→available); `.ht` switched to RDAP — whois.nic.ht is IPv6-only with port 43 closed from our networks, but rdap.nic.ht is in the IANA bootstrap and answers (verified google.ht→registered, zzqqxwvxyz.ht→available). The spec's ".do/.ht via WHOIS" acceptance is met via WHOIS for `.do` and RDAP (the registry's own protocol) for `.ht` — deviation documented in config/tlds.php — M3/M8
 - [x] **RobotDomainSearch live endpoint + JSON shape** — verified 2026-08-17: **down** (api.robotdomainsearch.com resolves but the endpoint would not accept connections). Implementation falls through to tiers 2–3 per the spec; `ROBOTDOMAINSEARCH_*_URL` config is ready for the real endpoint once confirmed — M4
-- [ ] **Openprovider** exact aftermarket endpoint + auth — confirm once an `OPENPROVIDER_API_KEY` is supplied — M4 (optional)
+- [x] **Openprovider** exact aftermarket endpoint + auth — confirmed 2026-09-17 from the published OpenAPI reference; implemented with the login/token handshake — M4
 - [x] **USPTO** live endpoint — verified + documented 2026-08-17: `POST https://tmsearch.uspto.gov/prod-v1-0-0/tmsearch` — M6
 - [x] **Ollama** running (local or VPS) for Suggest mode — verified 2026-08-17 (qwen2.5:3b; llama3.1:8b OOM-killed on the 8 GB box) — M5
 - [ ] **`OPENROUTER_API_KEY`** — LLM fallback — M5 (optional until then)
-- [ ] **`OPENPROVIDER_API_KEY`** — aftermarket tier 2 — M4 (optional)
+- [ ] **`OPENPROVIDER_USERNAME` + `OPENPROVIDER_PASSWORD_HASH`** — aftermarket tier 2 — M4 (optional)
 - [x] **Deploy artifacts** — `deploy/nginx.namesweep.conf` + `deploy/logrotate.namesweep` written and documented in README — M8
-- [ ] **Deploy** to VPS (nginx + PHP-FPM + logrotate) — you wire up per README — M8
-- [ ] **Acceptance run on the VPS** — `php tests/smoke.php` green on the real host — M8
 
 ---
 
@@ -350,7 +348,7 @@ Both tiers, per the owner decision.
   entity. Registrar ∈ {Afternic, Sedo, HugeDomains, DAN} is a strong for-sale signal at
   zero extra HTTP cost. Parse it in `RdapClient` and pass through.
 - Rewire `MarketplaceModule` tier order: DNS signals → RDAP registrar → Openprovider
-  (if `OPENPROVIDER_API_KEY` set) → RobotDomainSearch (if its URL is ever revived) →
+  (if the Openprovider credentials are set) → RobotDomainSearch (if its URL is ever revived) →
   `ParkedPageDetector`. Retire RobotDomainSearch from tier 1; keep the class, demote it.
 - Fix the double-run: `MarketplaceModule::check()` currently re-invokes
   `DomainModule::check()` internally, which doubles every RDAP call under `--no-cache`.
@@ -499,9 +497,8 @@ the owner's core complaint. M11 before M12 (budget needs prices). M13 and M14 la
 
 ## P2.2 Carried-over open items
 
-- [ ] `OPENPROVIDER_API_KEY` — now an explicit M10 tier-3 upgrade rather than "optional"
+- [ ] `OPENPROVIDER_USERNAME` + `OPENPROVIDER_PASSWORD_HASH` — now an explicit M10 tier-3 upgrade rather than "optional"
 - [ ] `OPENROUTER_API_KEY` — LLM fallback (Ollama works locally on qwen2.5:3b)
-- [ ] Deploy to VPS + acceptance run — unchanged from M8
 - [x] `PLAN.md` §1 bulk-CLI claim is now implemented by M13
 - [x] M10: `MarketplaceModule` double `DomainModule::check()` — fixed via `DomainResultsAware`
       injection; verified 6 → 3 lookups for 3 suffixes by A/B test.

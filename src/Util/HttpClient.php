@@ -11,7 +11,7 @@ namespace NameSweep\Util;
  * \RuntimeException on transport-level failures (DNS, connect, timeout,
  * TLS). Callers decide how to treat non-2xx statuses.
  */
-final class HttpClient
+final class HttpClient implements HttpClientInterface
 {
     public function __construct(
         private readonly int $timeout = 8,

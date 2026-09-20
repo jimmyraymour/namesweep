@@ -415,7 +415,7 @@ return [
 
 **Provider priority (`config/app.php`):**
 1. `RobotDomainSearchProvider` (keyless in beta, 60 req/min limit). If 200 → use it.
-2. `OpenproviderProvider` with `provider=sedo` then `provider=afternic`. Requires `OPENPROVIDER_API_KEY` and `OPENPROVIDER_API_URL` in env.
+2. `OpenproviderProvider` with `provider=SEDO` then `provider=AFTERNIC`. Requires `OPENPROVIDER_USERNAME`, `OPENPROVIDER_PASSWORD_HASH` and `OPENPROVIDER_API_URL` in env. Openprovider issues no static key: the hash is a password exchanged at `POST /auth/login` for a bearer token.
 3. `ParkedPageDetector` as final backstop — fetches `http://{name}.{tld}/` (and `https://`) and looks for known parked-page signatures in the HTML: meta description containing "this domain", "buy this domain", ad-network script names (`sedoparking.com/js/`, `parkingcrew.net`, `bodis.com`), and `<title>` patterns. Brittle — return `uncertain` if ambiguous.
 
 **`RobotDomainSearchProvider` contract:**
@@ -725,7 +725,9 @@ OPENROUTER_MODEL=meta-llama/llama-3.1-8b-instruct:free
 
 # Aftermarket
 OPENPROVIDER_API_URL=https://api.openprovider.com/v1beta
-OPENPROVIDER_API_KEY=
+OPENPROVIDER_USERNAME=
+OPENPROVIDER_PASSWORD_HASH=
+OPENPROVIDER_PROVIDER=SEDO
 
 # RDAP
 RDAP_BOOTSTRAP_URL=https://data.iana.org/rdap/dns.json

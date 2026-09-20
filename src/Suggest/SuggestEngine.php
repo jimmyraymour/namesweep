@@ -12,9 +12,12 @@ use NameSweep\Util\Logger;
  * Suggest orchestrator — the LLM loop.
  *
  * Iteration:
- *   1. Send description (+ on iteration > 1: the rejected names) to the LLM.
- *   2. Receive N candidate names (strict JSON parse, retry once, then switch
- *      backend).
+ *   1. Send description (+ on iteration > 1: the rejected names) to Bifrost's
+ *      'suggest' job (Local Ollama -> OpenRouter fallback is configured in
+ *      Bifrost, not here — see AI routes redesign, root CLAUDE.md).
+ *   2. Receive N candidate names (strict JSON parse; a step that returns
+ *      unparseable JSON is a failed attempt, and Bifrost's own job steps
+ *      fall back to the next route — this app no longer picks backends).
  *   3. Run Engine::check for each candidate (modules filter = domain + social).
  *   4. Keep only names that are `available` for ALL requested TLDs and ALL
  *      social platforms.
@@ -28,7 +31,6 @@ final class SuggestEngine
     private const DEFAULT_MODULES = ['domain', 'social'];
 
     public function __construct(
-        private readonly LlmClient $llm,
         private readonly Engine $engine,
         private readonly SuggestRepository $repo,
         private readonly Logger $logger,
@@ -168,15 +170,24 @@ final class SuggestEngine
             (string) ($prompts['suggest_user'] ?? '')
         );
 
-        $res = $this->llm->generateJson(
-            (string) ($prompts['suggest_system'] ?? ''),
-            $user,
-            $temperature,
-            'names'
+        $res = \Bifrost::ai(
+            'suggest',
+            ['system' => (string) ($prompts['suggest_system'] ?? ''), 'prompt' => $user],
+            ['json' => true, 'temperature' => $temperature]
         );
 
+        // The 'suggest' job's prompt asks for {"names": [...]}; fall back to
+        // the raw decoded value for a model that returns a bare array.
+        $data = $res['json'];
+        if (is_array($data) && isset($data['names']) && is_array($data['names'])) {
+            $data = $data['names'];
+        }
+        if (!is_array($data)) {
+            throw new \RuntimeException('LLM returned no names');
+        }
+
         $names = [];
-        foreach ($res['data'] as $n) {
+        foreach ($data as $n) {
             if (is_string($n) && trim($n) !== '') {
                 $names[] = trim($n);
                 continue;
@@ -195,7 +206,7 @@ final class SuggestEngine
         if ($names === []) {
             // Name => note map shape: use the keys as the names.
             $keys = [];
-            foreach ($res['data'] as $k => $v) {
+            foreach ($data as $k => $v) {
                 if (is_string($k) && preg_match('/^[a-z0-9][a-z0-9-]{0,62}$/', $k)) {
                     $keys[] = $k;
                 }
@@ -206,7 +217,7 @@ final class SuggestEngine
         if ($names === []) {
             throw new \RuntimeException('LLM returned no names');
         }
-        return [$res['model'], $names];
+        return [$res['route'] . ':' . $res['model'], $names];
     }
 
     /**
@@ -222,6 +233,23 @@ final class SuggestEngine
             }
             foreach ($rows as $row) {
                 $status = (string) ($row['status'] ?? 'uncertain');
+                // Social handles: the four providers currently return `uncertain`
+                // for every fresh handle (Instagram/TikTok serve a login/WAF wall
+                // with no positive marker, X is intermittently wall-gated). The
+                // spec says `uncertain` over guessing, but requiring strict
+                // `available` for social makes `/suggest` with the default
+                // `domain+social` filter keep nothing (every suggest session in
+                // the DB with `["domain","social"]` has kept=0). Treat social
+                // `uncertain` as not blocking — only `registered`/`for_sale`/
+                // `parked` are real negatives — while domain/marketplace/
+                // trademark stay strict (`available` only).
+                if ($module === 'social') {
+                    if ($status === 'registered' || $status === 'for_sale' || $status === 'parked') {
+                        $target = '@' . ($row['platform'] ?? $module);
+                        return $target . ' is ' . $status;
+                    }
+                    continue;
+                }
                 if ($status !== 'available') {
                     $target = ($row['tld'] ?? '') !== '' ? '.' . $row['tld'] : '@' . ($row['platform'] ?? $module);
                     return $target . ' is ' . $status;

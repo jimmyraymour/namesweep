@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace NameSweep\Util;
 
 use NameSweep\Storage\Database;
-use NameSweep\Suggest\LlmClient;
 
 /**
- * LLM one-line summary at the top of a report (280-char cap).
+ * LLM one-line summary at the top of a report (280-char cap), via Bifrost's
+ * 'summary' job.
  *
  * Cached in `report_summaries` keyed by name; regenerated when the newest
  * check result is newer than the cached summary (results changed since).
@@ -18,7 +18,6 @@ use NameSweep\Suggest\LlmClient;
 final class SummaryWriter
 {
     public function __construct(
-        private readonly LlmClient $llm,
         private readonly Database $db,
         private readonly Logger $logger,
         private readonly array $config
@@ -50,10 +49,10 @@ final class SummaryWriter
         );
 
         try {
-            $res = $this->llm->generate(
-                (string) ($prompts['summary_system'] ?? ''),
-                $user,
-                (float) ($this->config['summary']['temperature'] ?? 0.2)
+            $res = \Bifrost::ai(
+                'summary',
+                ['system' => (string) ($prompts['summary_system'] ?? ''), 'prompt' => $user],
+                ['temperature' => (float) ($this->config['summary']['temperature'] ?? 0.2)]
             );
         } catch (\Throwable $e) {
             $this->logger->warning("Summary generation failed for {$name}", ['error' => $e->getMessage()], 'summary');

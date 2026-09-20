@@ -37,16 +37,22 @@ return [
         'user_agent' => getenv('HTTP_USER_AGENT') ?: 'NameSweep/1.0',
     ],
 
-    'llm' => [
-        'ollama_base_url'    => getenv('OLLAMA_BASE_URL') ?: 'http://127.0.0.1:11434',
-        'ollama_model'       => getenv('OLLAMA_MODEL') ?: 'llama3.1:8b',
-        'openrouter_api_key' => getenv('OPENROUTER_API_KEY') ?: '',
-        'openrouter_model'   => getenv('OPENROUTER_MODEL') ?: 'meta-llama/llama-3.1-8b-instruct:free',
-    ],
+    // LLM provider config removed (AI routes redesign, 2026-09-11): the
+    // 'suggest' and 'summary' jobs — including which model/fallback order —
+    // are configured in Bifrost's AI & Keys UI, not here. See root CLAUDE.md.
 
     'aftermarket' => [
-        'openprovider_api_url'  => getenv('OPENPROVIDER_API_URL') ?: 'https://api.openprovider.com/v1beta',
-        'openprovider_api_key'  => getenv('OPENPROVIDER_API_KEY') ?: '',
+        // Openprovider issues no static API key: the control-panel hash is a
+        // permanent password exchanged at /auth/login for a short-lived bearer
+        // token. Hence username + password hash, not a single key.
+        // Base URL verified 2026-09-17 on developer.openprovider.com — the .eu
+        // host, /v1. The old /v1beta is retired as of September 2026.
+        'openprovider_api_url'        => getenv('OPENPROVIDER_API_URL') ?: 'https://api.openprovider.eu/v1',
+        'openprovider_username'       => getenv('OPENPROVIDER_USERNAME') ?: '',
+        'openprovider_password_hash'  => getenv('OPENPROVIDER_PASSWORD_HASH') ?: '',
+        // Aftermarket source to ask about: SEDO or AFTERNIC.
+        'openprovider_provider'       => getenv('OPENPROVIDER_PROVIDER') ?: 'SEDO',
+        'openprovider_token_cache'    => __DIR__ . '/../storage/cache/openprovider_token.json',
         'concurrency'           => (int) (getenv('AFTERMARKET_CONCURRENCY') ?: 5),
         // Primary RobotDomainSearch tier. `{domain}` is replaced with the FQDN.
         // THE LIVE ENDPOINT IS UNVERIFIED/DOWN as of 2026-08-17 (api.robotdomainsearch.com

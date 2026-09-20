@@ -43,7 +43,7 @@ Credentials live in `.env` (git-ignored). Copy them from `.env.example` and ask 
 the key if it is missing. The key is scoped to this project alone.
 
 ```
-MERIDIAN_API_URL=http://localhost/meridian/api
+MERIDIAN_API_URL=https://meridian.raymour.local/api
 MERIDIAN_PROJECT_ID=namesweep
 MERIDIAN_TRACKER=dev
 MERIDIAN_API_KEY=<ask the operator>
@@ -94,7 +94,7 @@ php bin/meridian new "Fix suffix parsing for multi-label TLDs" \
 **When you are blocked — do not wait for the end of the session**
 
 ```sh
-php bin/meridian item 2474 blocked "Needs OPENPROVIDER_API_KEY from the operator"
+php bin/meridian item 2474 blocked "Needs the Openprovider username + password hash from the operator"
 php bin/meridian alert "[namesweep] Openprovider key needed" \
   "Tier 2 cannot be verified without a key. Tried X, got Y. Need Z." \
   --severity=warning --type=agent_blocked --by=<your-agent-name>
@@ -246,12 +246,14 @@ docs, including this one.
 - **Done:** M1–M14. M12 was reconciled with the tracker, and M13/M14 were implemented and
   verified in this session. The working tree contains the uncommitted implementation; do not
   push without being asked.
-- **Next:** VPS deployment/acceptance, optional provider credentials, and owner-supplied pricing
-  for `.do`/`.ht`/`.com.do`.
-- **Needs the operator:** `.do`/`.ht`/`.com.do` registration prices (item #2477),
-  `OPENPROVIDER_API_KEY` (#2474, optional), VPS deploy and on-host acceptance run,
-  and a **correct Meridian key** — the current `MERIDIAN_API_KEY` in `.env` authenticates to
-  project `qmgtek` (Spec Sherpa), so the `namesweep` tracker cannot be read or updated.
+- **Next:** optional provider credentials and owner-supplied pricing for `.do`/`.ht`/`.com.do`.
+  Where this runs (local or a host) is the owner's call, not tracked work.
+- **Needs the operator:** `.do`/`.ht`/`.com.do` registration prices (item #2477) and
+  the Openprovider username + password hash (#2474, optional).
+  The Meridian client is working again as of 2026-09-18. It had been pointed at
+  `http://localhost/raymour/meridian/api`, which still answers but is not canonical;
+  it now uses the vhost `https://meridian.raymour.local/api`, and `whoami` confirms
+  the key is correctly scoped to `namesweep`.
 - `main` is ahead of `origin` and has not been pushed. Do not push without being asked.
 
 Full detail in `PLAN.md`.
