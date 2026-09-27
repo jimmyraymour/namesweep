@@ -22,3 +22,7 @@ storage/settings.json
 
 # OS / editor
 .DS_Store
+
+# Backups: contain a full DB dump and app files. Never commit — the 2026-08-31
+# tarball put .env (DB_PASS, MERIDIAN_API_KEY) into git history. See backup_data/MANIFEST.txt.
+backup_data/

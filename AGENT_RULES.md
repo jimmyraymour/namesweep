@@ -43,7 +43,7 @@ Credentials live in `.env` (git-ignored). Copy them from `.env.example` and ask 
 the key if it is missing. The key is scoped to this project alone.
 
 ```
-MERIDIAN_API_URL=https://meridian.raymour.local/api
+MERIDIAN_API_URL=https://meridian.raymour.lat/api
 MERIDIAN_PROJECT_ID=namesweep
 MERIDIAN_TRACKER=dev
 MERIDIAN_API_KEY=<ask the operator>
@@ -252,7 +252,7 @@ docs, including this one.
   the Openprovider username + password hash (#2474, optional).
   The Meridian client is working again as of 2026-09-18. It had been pointed at
   `http://localhost/raymour/meridian/api`, which still answers but is not canonical;
-  it now uses the vhost `https://meridian.raymour.local/api`, and `whoami` confirms
+  it now uses the vhost `https://meridian.raymour.lat/api`, and `whoami` confirms
   the key is correctly scoped to `namesweep`.
 - `main` is ahead of `origin` and has not been pushed. Do not push without being asked.
 

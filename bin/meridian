@@ -41,7 +41,7 @@ $get = static fn (string $k, string $default = ''): string
 // machine-wide MERIDIAN_API_KEY scoped to the qaribo project, which used to
 // hijack this wrapper and answer every call with "scoped to project qaribo".
 
-$base    = rtrim($get('MERIDIAN_API_URL', 'https://meridian.raymour.local/api'), '/');
+$base    = rtrim($get('MERIDIAN_API_URL', 'https://meridian.raymour.lat/api'), '/');
 $key     = $get('MERIDIAN_API_KEY');
 $project = $get('MERIDIAN_PROJECT_ID', 'namesweep');
 $tracker = $get('MERIDIAN_TRACKER', 'dev');

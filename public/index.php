@@ -17,7 +17,7 @@ use NameSweep\Web\Pages\SuggestPage;
 $app = require __DIR__ . '/../bootstrap.php';
 
 // Bifrost SSO (Phase 1): every UI page requires a signed-in identity. The
-// browser carries the bifrost_session cookie (.raymour.local) and the shared
+// browser carries the bifrost_session cookie (.raymour.lat) and the shared
 // client introspects it server-side. The REST API (public/api.php) keeps its
 // Bearer-key auth; bin/ CLI is unaffected. (BifrostClient.php itself is
 // required once in bootstrap.php, shared by every entry point.)

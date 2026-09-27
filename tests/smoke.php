@@ -30,8 +30,27 @@ $fail = 0;
 $skip = 0;
 $failures = [];
 
+// Coverage probe (tracker #3522). Opt-in via SMOKE_COVERAGE=<path>: every check()/skip() records
+// the line it was called from, so a full run can be reconciled against the call sites actually
+// present in this file. Two assertions had already been found silently dead — one killed by a
+// subprocess parse error, one whose button never existed — and a dead assertion in the release
+// gate is worse than a missing one, because it reports PASS. Off by default: when the env var is
+// unset this costs one isset() per call and changes nothing about the suite's behaviour.
+function coverage_mark(): void
+{
+    $path = getenv('SMOKE_COVERAGE');
+    if ($path === false || $path === '') {
+        return;
+    }
+    $frame = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1] ?? null;
+    if ($frame !== null && isset($frame['line'])) {
+        file_put_contents($path, $frame['line'] . PHP_EOL, FILE_APPEND | LOCK_EX);
+    }
+}
+
 function check(string $label, bool $ok, string $detail = ''): void
 {
+    coverage_mark();
     global $pass, $fail, $failures;
     if ($ok) {
         $pass++;
@@ -45,6 +64,7 @@ function check(string $label, bool $ok, string $detail = ''): void
 
 function skip(string $label, string $reason): void
 {
+    coverage_mark();
     global $skip;
     $skip++;
     echo "  SKIP  {$label} ({$reason})" . PHP_EOL;
@@ -200,6 +220,16 @@ preg_match('/key:\s+(ns_[a-f0-9]{32})/', $created['out'], $m);
 $plaintext = $m[1] ?? '';
 preg_match('/id:\s+(\d+)/', $created['out'], $idm);
 $keyId = (int) ($idm[1] ?? 0);
+// The key this run just minted is a LIVE credential against this API. Revoking it only on the
+// rate-limit section's success path leaked one every time a run aborted earlier or skipped that
+// section — six live orphans had accumulated in api_keys by 2026-09-20. Shutdown always runs, so
+// registering here means the key cannot outlive the process whatever happens to it. The later
+// key:revoke stays where it is (it asserts the lifecycle mid-run); revoking twice is harmless.
+if ($keyId > 0) {
+    register_shutdown_function(static function () use ($keyId): void {
+        cli(['key:revoke', (string) $keyId]);
+    });
+}
 check('key:create prints plaintext exactly once', preg_match_all('/\bns_[a-f0-9]{32}\b/', $created['out']) === 1, $plaintext !== '' ? 'prefix ' . substr($plaintext, 0, 9) : 'no key found');
 
 $listed = cli(['key:list']);
